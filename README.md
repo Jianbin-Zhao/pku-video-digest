@@ -54,12 +54,22 @@
 pip install -e ".[download]"
 python -m playwright install chromium
 
-# 理解侧（服务器）额外装
+# 理解侧（服务器或本机独立部署）额外装
 pip install -e ".[asr,ocr,serve]"
 ```
 
+系统依赖 **ffmpeg**（音频抽取与 B 站音视频合流必需，`ffmpeg`/`ffprobe` 需在 PATH）：
+Linux `apt install ffmpeg`；Windows 下载静态构建解压后把 bin 目录加入 PATH。
+
+ASR 模型首次一次性下载（约 900MB，放到 `VSPIDER_MODELS_ROOT` 指向的目录）：
+
+```bash
+modelscope download --model iic/SenseVoiceSmall --local_dir <MODELS_ROOT>/SenseVoiceSmall
+modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch --local_dir <MODELS_ROOT>/fsmn-vad
+```
+
 配置 `.env`（参考 `.env.example`）：`api` 档需 `DASHSCOPE_API_KEY`；
-远程执行/同步需 `VSPIDER_SSH_*`。
+模型目录用 `VSPIDER_MODELS_ROOT` 指定；远程执行/同步需 `VSPIDER_SSH_*`。
 
 ---
 
