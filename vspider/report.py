@@ -206,15 +206,16 @@ def render_html(run: dict[str, Any]) -> str:
         if digest.get("headline"):
             parts.append(f"<div class='headline'>{e(digest['headline'])}</div>")
         themes = digest.get("themes") or []
-        if themes:
+        observations = digest.get("observations") or []
+        if themes or observations:
             parts.append("<ul>")
             for t in themes:
                 parts.append(
                     f"<li><b>{e(t.get('name', ''))}</b> {e(t.get('description', ''))}</li>"
                 )
+            for obs in observations:
+                parts.append(f"<li>{e(obs)}</li>")
             parts.append("</ul>")
-        for obs in digest.get("observations") or []:
-            parts.append(f"<li>{e(obs)}</li>")
         if digest.get("top_pick_uid"):
             parts.append(
                 f"<div class='pick'>优先观看 {e(digest['top_pick_uid'])} — "
