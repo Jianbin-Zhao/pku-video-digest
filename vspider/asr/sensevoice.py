@@ -60,6 +60,14 @@ class SenseVoiceAsr(AsrBackend):
         from funasr import AutoModel
         from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
+        # 要求 cuda 但机器上没有（比如本机 CPU 版 torch）时自动落到 cpu，
+        # 避免网页端默认 cuda:0 在无卡机器上直接把整条视频判失败。
+        if self._device.startswith("cuda"):
+            import torch
+
+            if not torch.cuda.is_available():
+                self._device = "cpu"
+
         self._postprocess = rich_transcription_postprocess
         # disable_pbar 是必需的：funasr 每次 generate 都会打一条 tqdm 进度条，
         # 多条视频并发时这些进度条会互相覆盖，把流水线自己的日志彻底冲掉。

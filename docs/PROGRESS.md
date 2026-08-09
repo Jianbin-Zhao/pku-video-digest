@@ -720,3 +720,51 @@ GPU 档归纳仅 1.73s，CPU 档单条归纳 60~77s（Qwen2.5-3B Q4 在 12 vCPU 
   关键词 / 创作者 / handoff 三个条件字段在所有模式下都显示。补
   `.field[hidden] { display:none }` 后按场景正确显隐；已同步服务器
   `/root/vspider_plus`。
+
+## 全模式实测复核（2026-08-09 下午，用户报「本机 Web 全失败」引发）
+
+用户在本机 Web 点了 B 站榜单（api 档）→ 5/5 全失败于
+`FFmpegError: 找不到 ffprobe`。根因：本机此前只是「瘦采集端」，
+重计算依赖全缺。**本机环境已补齐为完整独立部署**：
+
+- ffmpeg/ffprobe（npmmirror 静态构建 → `D:\tools\ffmpeg\bin`，已入用户 PATH）
+- funasr 1.4.1 + torch 2.13 CPU + rapidocr + soundfile（清华源）
+- SenseVoiceSmall (893MB) + fsmn-vad（ModelScope 直链 → `D:\pku_exam_plus\models`，
+  `.env` 增 `VSPIDER_MODELS_ROOT`）
+
+### 复核中挖出并修复的真 bug
+
+1. **Web 同进程第二次运行必失败**（`Cannot send a request, as the client has
+   been closed`）：`ComponentCache` 跨 run 复用 ASR/OCR/归纳器，但每次 run 结束
+   `orchestrator.aclose()` 把缓存的归纳器 httpx client 一并关了。修复：`aclose`
+   增加 `shared` 参数，Web 端只关每 run 独立的采集器/下载器。此前没发现是因为
+   之前的验证都是「每次新进程」。
+2. **ASR 设备自动回退**：网页默认 `cuda:0`，无卡机器（CPU 版 torch）会在 ASR 段
+   直接失败。SenseVoice 加载时检测 `torch.cuda.is_available()`，不可用自动落 cpu。
+3. **搜索候选池过小**：搜索结果偏长视频（课程/合集），`limit*3` 个候选可能被
+   30 分钟时长上限全滤光（实测「人工智能」前 6 条全超长 → 0/0）。改为 `limit*6`。
+4. **probe 脚本 422**：`creator_id=946974` 被误转 int。改按键名定类型。
+5. **login.py --force 未接线**：提示文案有 `--force` 但 argparse 没注册；且强制
+   重登前必须按域名清平台 cookie（共享持久化上下文，不能整体清），否则半失效
+   cookie 让轮询立即误报「已登录」。
+6. **快手无头风控**：`window.__ks_realm` 签名环境在无头浏览器不注入（有头正常）。
+   MediaCrawler ks help.py 超时 15/20s → 45/60s；Web 端新增 `VSPIDER_WEB_HEADED=1`
+   开关，本机跑浏览器平台用有头模式。
+
+### 本机（Windows，api 档 = 云端 LLM + 本地 ASR/OCR）实测结果
+
+| 模式 | 平台 | 结果 |
+| --- | --- | --- |
+| rank | bili | ✓ 2/2，573s（含 21 分钟长视频 CPU 转写），digest+报告 ✓ |
+| search | bili | ✓ 2/2，363s，无音轨→OCR 与 fast 跳 OCR 两条路径都触发 |
+| understand | wb handoff | ✓ 2/2，94.9s，digest+报告 ✓ |
+| creator | bili | ✗ 需 `BILI_COOKIE`（未登录访问空间接口 412，错误提示已给指引） |
+| creator | dy | ✗ account blocked（上午大量抓取后临时限流） |
+| creator | ks | ✗ webday7 token 过期需重扫码（榜单级登录态仍在；等用户扫码） |
+
+### 服务器（重启 Web 加载修复后连续两跑，验证缓存修复）
+
+| 档位 | 结果 |
+| --- | --- |
+| GPU（vLLM Qwen3-8B） | ✓ 3/3，89.3s，digest+报告 ✓ |
+| CPU（llama.cpp Qwen2.5-3B） | ✓ 3/3，466.7s，digest+报告 ✓（同进程第二跑） |

@@ -189,7 +189,9 @@ class RunManager:
                         limit=req.limit, category=req.category, today_only=req.today
                     )
             finally:
-                await orchestrator.aclose()
+                # shared=False：ASR/OCR/归纳器由 ComponentCache 跨 run 复用，
+                # 只关本次运行独立创建的采集器与下载器。
+                await orchestrator.aclose(shared=False)
                 if closer is not None:
                     await closer()
 
@@ -248,7 +250,10 @@ class RunManager:
         if platform in BROWSER_PLATFORMS:
             from vspider.mediacrawler.session import MediaCrawlerSession
 
-            sess = MediaCrawlerSession(headless=True)
+            # 快手等平台对无头浏览器有额外风控（签名环境不注入），
+            # 本机部署时设 VSPIDER_WEB_HEADED=1 用有头浏览器跑，成功率高得多。
+            headed = os.environ.get("VSPIDER_WEB_HEADED", "") == "1"
+            sess = MediaCrawlerSession(headless=not headed)
             session = await sess.__aenter__()
 
             async def _close() -> None:

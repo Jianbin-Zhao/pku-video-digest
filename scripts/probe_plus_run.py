@@ -19,18 +19,23 @@ import httpx
 BASE = "http://127.0.0.1:6006"
 
 
-def _coerce(value: str) -> object:
-    if value in ("true", "1"):
-        return True
-    if value in ("false", "0"):
-        return False
-    return int(value) if value.isdigit() else value
+_BOOL_KEYS = {"fast", "digest", "today", "resume"}
+_INT_KEYS = {"limit", "concurrency"}
+
+
+def _coerce(key: str, value: str) -> object:
+    # 按键名定类型：creator_id 等纯数字字符串不能转 int，否则接口 422。
+    if key in _BOOL_KEYS:
+        return value in ("true", "1")
+    if key in _INT_KEYS:
+        return int(value)
+    return value
 
 
 body: dict = {}
 for arg in sys.argv[1:]:
     key, _, value = arg.partition("=")
-    body[key] = _coerce(value)
+    body[key] = _coerce(key, value)
 print("请求体:", body)
 r = httpx.post(f"{BASE}/api/run", json=body, timeout=30)
 r.raise_for_status()

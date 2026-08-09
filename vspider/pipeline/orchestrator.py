@@ -208,7 +208,9 @@ class Orchestrator:
 
         stage_started = time.perf_counter()
         await self._emit(Event(EventKind.STAGE_START, stage=Stage.DISCOVER))
-        raw = await self._provider.search_videos(keyword, limit=limit * 3)
+        # 搜索结果比榜单更容易混入超长课程/合集/直播回放，多取几倍再按时长筛，
+        # 否则热门关键词可能整批被时长上限滤光。
+        raw = await self._provider.search_videos(keyword, limit=limit * 6)
         kept, dropped = self._filter_by_duration(raw)
         items = kept[:limit]
         await self._report_dropped([d for d in dropped if (d.rank or 999) <= limit])
@@ -748,15 +750,18 @@ class Orchestrator:
             )
         )
 
-    async def aclose(self) -> None:
-        for closable in (
-            self._provider,
-            self._downloader,
-            self._asr,
-            self._ocr,
-            self._summarizer,
-            self._escalated,
-        ):
+    async def aclose(self, *, shared: bool = True) -> None:
+        """关闭持有的组件。
+
+        Args:
+            shared: 是否连推理后端（ASR/OCR/归纳器）一起关。Web 服务把这些
+                重后端缓存起来跨 run 复用，必须传 False 只关采集器与下载器，
+                否则第二次运行会拿到一个 client 已关闭的归纳器直接失败。
+        """
+        closables: tuple[object | None, ...] = (self._provider, self._downloader)
+        if shared:
+            closables += (self._asr, self._ocr, self._summarizer, self._escalated)
+        for closable in closables:
             if closable is None:
                 continue
             close = getattr(closable, "aclose", None)
