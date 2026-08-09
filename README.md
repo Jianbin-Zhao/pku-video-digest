@@ -6,6 +6,13 @@
 1. **场景一**：今天排行榜前 N 的视频，下载并归纳。
 2. **场景二**：指定用户今天发布的视频，下载并归纳。
 
+> **plus 拓展版**：本目录（`pku_exam_plus`）在 baseline（`v1.0`）之上做了四项拓展——
+> ① **场景三·跨平台关键词搜索**（一个词跨平台拉最热的几条一起看）；
+> ② **批次总览**（整批跑完再 LLM 归纳一层「这批整体在讲什么」+ 优先观看项）；
+> ③ **报告导出**（一次运行→自包含 HTML / Markdown，可直接分享）；
+> ④ **fast 模式 + 风控稳健性**（转写充分时跳过 OCR；B 站 v_voucher 软风控退避）。
+> 外加 **Forest 深色系新 Web 界面**。用法见下方「拓展能力（plus）」。
+
 以 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) 为**只读库依赖**（不改其源码，
 保留上游维护红利），在其之上自建榜单发现、语音识别、画面 OCR、多源融合归纳与任务编排。
 设计理由与改进点见 [`docs/DESIGN.md`](docs/DESIGN.md)，全部实测数据见 [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)，
@@ -108,6 +115,39 @@ Web 支持三种模式：`rank`（B 站直连）、`creator`（B 站直连）、
 
 ---
 
+## 拓展能力（plus）
+
+### 场景三：跨平台关键词搜索
+
+```bash
+# 服务器直连（B 站）：搜索→下载→归纳→批次总览一条龙
+vspider search --keyword 人工智能 --platforms bili --limit 3 --profile gpu --device cpu
+
+# 多平台串行（重后端只加载一次，跨平台结果汇总后统一出一次总览）
+vspider search --keyword 演唱会 --platforms bili,wb,xhs --limit 3
+
+# 机房 IP 被 B 站风控时，走混合路：本机搜索下载 → 服务器理解
+python scripts/fetch_local.py bili --keyword 人工智能 --limit 5 --out-dir data/handoff/search_ai
+python tools/remote.py put data/handoff/search_ai /root/autodl-tmp/data/handoff/search_ai
+python scripts/understand.py /root/autodl-tmp/data/handoff/search_ai --profile gpu --device cpu --digest
+```
+
+### 批次总览 + 报告导出
+
+```bash
+# rank / creator / search 默认整批完成后生成总览（关掉用 --no-digest）
+vspider rank --platform bili --limit 5 --fast --digest
+
+# 把任意历史运行导出成可分享报告（latest 取最近一次）
+vspider report latest --format html -o report.html
+vspider report <run_id> --format md
+```
+
+- `--fast`：转写字数 ≥200 时跳过抽帧与 OCR（信息已足够，省时间）；不足则仍走 OCR 兜底。
+- `understand.py` 也支持 `--digest / --fast / --persist / --report <path>`，混合路同样能出总览与报告。
+
+---
+
 ## 五平台落地状态
 
 | 平台 | 场景一 | 场景二 | 说明 |
@@ -135,7 +175,9 @@ vspider/            主工程
   web/              FastAPI + SSE 前端
   storage.py        SQLite 入库 + 断点续跑
   registry.py       组件装配（平台×profile）
-  cli.py            命令行入口（rank / creator）
+  report.py         运行结果 → 自包含 HTML / Markdown 报告（plus）
+  summarize/digest.py  跨视频批次总览（plus）
+  cli.py            命令行入口（rank / creator / search / report）
 scripts/            登录、本机采集、服务器理解、起服务、各类探针
 tools/remote.py     SSH 执行 / 文件同步
 MediaCrawler/       只读库依赖（不改）
@@ -147,8 +189,8 @@ docs/               DESIGN / EXPERIMENTS / PROGRESS
 | 脚本 | 作用 |
 | --- | --- |
 | `scripts/login.py` / `login_douyin.py` | 本机登录，持久化会话到 `.browser/` |
-| `scripts/fetch_local.py` | 本机采集下载（场景一 `--limit`；场景二 `--creator [--today] --out-dir`） |
-| `scripts/understand.py` | 服务器对 handoff 目录做理解 |
+| `scripts/fetch_local.py` | 本机采集下载（场景一 `--limit`；场景二 `--creator [--today]`；场景三 `--keyword`；已支持 B 站） |
+| `scripts/understand.py` | 服务器对 handoff 目录做理解（`--digest` 总览 / `--fast` / `--report` 导出报告） |
 | `scripts/vllm_restart.sh` | 起/重启 vLLM（gpu 档） |
 | `scripts/cpu_setup.sh` / `cpu_serve.sh` | 装/起 llama.cpp（cpu 档） |
 | `scripts/serve_web.sh` | 起 Web 界面 |
