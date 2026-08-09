@@ -119,6 +119,17 @@ bash scripts/serve_web.sh 6006   # 起 FastAPI（0.0.0.0:6006）
 ssh -p <port> -L 6006:127.0.0.1:6006 root@<host>
 ```
 
+**本机（Windows，无显卡）也能跑 cpu 档**：装 CPU 版 llama-cpp-python，从
+ModelScope 下同款 GGUF，起在 8081（8080 常被系统服务占用）：
+
+```powershell
+pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+pip install "llama-cpp-python[server]"
+python -c "from modelscope.hub.file_download import model_file_download; model_file_download(model_id='Qwen/Qwen2.5-3B-Instruct-GGUF', file_path='qwen2.5-3b-instruct-q4_k_m.gguf', local_dir=r'models\Qwen2.5-3B-Instruct-GGUF')"
+python -m llama_cpp.server --model models\Qwen2.5-3B-Instruct-GGUF\qwen2.5-3b-instruct-q4_k_m.gguf --model_alias local --host 127.0.0.1 --port 8081 --n_ctx 16384 --n_threads 8
+# .env 里加：VSPIDER_LLAMA_BASE_URL=http://127.0.0.1:8081/v1
+```
+
 Web 支持三种模式：`rank`（B 站直连）、`creator`（B 站直连）、
 `understand`（对已同步到服务器的 handoff 目录做理解，覆盖四个浏览器平台）。
 运行结果自动入 SQLite，支持历史回看与**断点续跑**（`--resume` / 界面勾选，跳过已归纳的视频）。

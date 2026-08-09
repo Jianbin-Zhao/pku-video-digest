@@ -768,3 +768,25 @@ GPU 档归纳仅 1.73s，CPU 档单条归纳 60~77s（Qwen2.5-3B Q4 在 12 vCPU 
 | --- | --- |
 | GPU（vLLM Qwen3-8B） | ✓ 3/3，89.3s，digest+报告 ✓ |
 | CPU（llama.cpp Qwen2.5-3B） | ✓ 3/3，466.7s，digest+报告 ✓（同进程第二跑） |
+
+## E13 本机 cpu 档落地（2026-08-09 晚）
+
+用户在本机网页选 cpu 档报 `HTTP 404 Document Error`。排查：
+
+1. 本机没起 llama.cpp，而 cpu 档默认打 `127.0.0.1:8080`；
+2. 更阴的是 8080 被系统服务 `ApplicationWebServer` 占用——预检只测「连通性」
+   （TransportError），一个能连通但返回 404 HTML 的陌生服务把预检骗过去了，
+   于是整批跑到归纳段才报 404。
+
+修复与落地：
+
+- **预检改严**：`GET /models` 必须 200 且 Content-Type 为 JSON 才放行，否则
+  报「端口被其他程序占用/不是模型服务」并给指引（web/server.py）。
+- **本机装齐 cpu 档**：llama-cpp-python 0.3.34（CPU 预编译轮子）+ 服务器同款
+  `Qwen2.5-3B-Instruct q4_k_m.gguf`（ModelScope，2.1GB），起在 **8081** 避开占用，
+  `.env` 加 `VSPIDER_LLAMA_BASE_URL=http://127.0.0.1:8081/v1`。
+- **实测**：understand（search_bili_ai，2 视频）cpu 档 ✓ 2/2，138.5s，
+  digest 由本机 3B 模型生成，report.html/md 均 200。至此**本机 api/cpu 两档
+  与服务器 api/gpu/cpu 三档全部可用**（本机无 N 卡，gpu 档仅服务器），
+  cpu 档实现「断网也能全本地跑」。
+- README 补本机 Windows cpu 档部署步骤。

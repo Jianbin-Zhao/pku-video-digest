@@ -341,19 +341,35 @@ def create_app() -> FastAPI:
             return
         env_name, fallback, engine = _LOCAL_LLM[profile]
         base = (os.environ.get(env_name) or fallback).rstrip("/")
+        hint = (
+            f"该引擎通常部署在 GPU 服务器上；本机运行请改选 api 档，"
+            f"或先启动本地 {engine} 服务（也可在 .env 用 {env_name} 指向可用地址）。"
+        )
         try:
             async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-                await client.get(f"{base}/models")
+                resp = await client.get(f"{base}/models")
         except httpx.TransportError as exc:
             raise HTTPException(
                 400,
                 detail=(
                     f"{profile} 档的归纳引擎连不上（{engine} @ {base}，"
-                    f"{type(exc).__name__}）。该引擎通常部署在 GPU 服务器上；"
-                    f"本机运行请改选 api 档，或先启动本地 {engine} 服务"
-                    f"（也可在 .env 用 {env_name} 指向可用地址）。"
+                    f"{type(exc).__name__}）。{hint}"
                 ),
             ) from exc
+        # 端口可能被别的程序占用（比如本机 8080 常见有打印服务），
+        # 能连通不代表是模型服务：必须返回 200 且是 JSON 才放行。
+        ok = resp.status_code == 200 and resp.headers.get(
+            "content-type", ""
+        ).startswith("application/json")
+        if not ok:
+            raise HTTPException(
+                400,
+                detail=(
+                    f"{base} 有服务在监听但不是 {engine}"
+                    f"（GET /models 返回 HTTP {resp.status_code}）。"
+                    f"这个端口可能被其他程序占用。{hint}"
+                ),
+            )
 
     @app.post("/api/run")
     async def start_run(req: RunRequest) -> dict[str, str]:
