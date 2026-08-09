@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>vspider · 多平台视频归纳</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --accent2: #1f6feb;
+    --ok: #3fb950; --warn: #d29922; --err: #f85149; --chip: #21262d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 12px;
+    position: sticky; top: 0; background: var(--bg); z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 24px 60px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 20px;
+  }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  select, input {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 10px; font-size: 14px; width: 100%;
+  }
+  .row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    background: var(--accent2); color: #fff; border: none; border-radius: 6px;
+    padding: 9px 18px; font-size: 14px; cursor: pointer; font-weight: 600;
+  }
+  button:hover { background: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); font-weight: 400; }
+  .status-bar { color: var(--muted); font-size: 13px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--text); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; display: flex; flex-direction: column; gap: 8px;
+    transition: border-color .2s;
+  }
+  .card.active { border-color: var(--accent2); }
+  .card.done { border-color: var(--ok); }
+  .card.error { border-color: var(--err); }
+  .card .title { font-weight: 600; font-size: 14px; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .meta { font-size: 12px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 20px;
+    background: var(--chip); color: var(--muted); border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .chip.active { background: #132b50; color: var(--accent); border-color: var(--accent2); }
+  .chip.done { background: #12261a; color: var(--ok); }
+  .chip.skip { background: #2a2410; color: var(--warn); }
+  .chip.fail { background: #2d1416; color: var(--err); }
+  .oneliner { font-size: 13px; color: var(--text); }
+  .kpts { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: #c9d1d9; }
+  .kpts li { margin: 2px 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: #1b2a3a; color: var(--accent); }
+  .badge { font-size: 11px; padding: 2px 7px; border-radius: 5px; }
+  .badge.promo { background: #3a2a10; color: var(--warn); }
+  .badge.pos { background: #12261a; color: var(--ok); }
+  .badge.neg { background: #2d1416; color: var(--err); }
+  .badge.neu { background: #21262d; color: var(--muted); }
+  .conf { font-size: 11px; color: var(--muted); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .tab { padding: 6px 14px; border-radius: 6px; cursor: pointer; color: var(--muted); border: 1px solid var(--border); }
+  .tab.active { color: var(--text); background: var(--panel); border-color: var(--accent2); }
+  .log { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+    color: var(--muted); max-height: 160px; overflow-y: auto; white-space: pre-wrap;
+    background: #0a0d12; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  tr.click { cursor: pointer; }
+  tr.click:hover { background: var(--panel2); }
+</style>
+</head>
+<body>
+<header>
+  <h1>vspider</h1>
+  <span class="sub">多平台短视频榜单发现 · 下载 · 内容归纳 —— 实时流水线</span>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-tab="run">运行</div>
+    <div class="tab" data-tab="history">历史记录</div>
+  </div>
+
+  <!-- 运行面板 -->
+  <div id="tab-run">
+    <div class="panel">
+      <div class="controls">
+        <div class="field">
+          <label>模式</label>
+          <select id="mode">
+            <option value="rank">场景一 · 今日榜单前 N</option>
+            <option value="creator">场景二 · 指定创作者</option>
+            <option value="understand">混合部署 · 理解已采集目录</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>平台</label>
+          <select id="platform">
+            <option value="bili">B 站</option>
+            <option value="dy">抖音</option>
+            <option value="ks">快手</option>
+            <option value="wb">微博</option>
+            <option value="xhs">小红书</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>归纳后端</label>
+          <select id="profile">
+            <option value="api">api · 云端百炼</option>
+            <option value="gpu">gpu · 本地 vLLM</option>
+            <option value="cpu">cpu · 本地 llama.cpp</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>语音识别设备</label>
+          <select id="device">
+            <option value="cpu">cpu</option>
+            <option value="cuda:0">cuda:0</option>
+          </select>
+        </div>
+        <div class="field" id="f-limit">
+          <label>数量</label>
+          <input id="limit" type="number" value="3" min="1" max="20" />
+        </div>
+        <div class="field" id="f-creator" style="display:none">
+          <label>创作者 ID</label>
+          <input id="creator_id" type="text" placeholder="B 站 mid / 抖音 sec_uid ..." />
+        </div>
+        <div class="field" id="f-handoff" style="display:none">
+          <label>handoff 目录</label>
+          <input id="handoff_dir" type="text" placeholder="/root/autodl-tmp/data/handoff/scene2/wb" />
+        </div>
+        <div class="field" id="f-today">
+          <label>只要今天</label>
+          <select id="today"><option value="false">否</option><option value="true">是</option></select>
+        </div>
+      </div>
+      <div class="row">
+        <button id="runBtn">开始运行</button>
+        <span class="status-bar" id="status">就绪</span>
+      </div>
+      <div class="hint" id="hint"></div>
+    </div>
+
+    <div class="panel" id="logPanel" style="display:none">
+      <h2>运行日志</h2>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div id="liveWrap" style="display:none">
+      <h2 id="liveTitle">流水线</h2>
+      <div class="cards" id="cards"></div>
+    </div>
+  </div>
+
+  <!-- 历史面板 -->
+  <div id="tab-history" style="display:none">
+    <div class="panel">
+      <h2>历史运行</h2>
+      <table id="histTable">
+        <thead><tr><th>时间</th><th>模式</th><th>平台</th><th>后端</th><th>成功率</th><th>耗时</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="histEmpty" style="display:none">暂无记录</div>
+    </div>
+    <div id="histDetail"></div>
+  </div>
+</div>
+
+<script>
+const STAGE_LABELS = {
+  discover: "榜单发现", collect: "元数据采集", download: "视频下载",
+  audio: "抽取音频", asr: "语音识别", keyframe: "关键帧抽取",
+  ocr: "画面文字识别", summarize: "内容归纳", store: "结果入库",
+};
+const SENTIMENT = { positive: ["pos","正面"], negative: ["neg","负面"], neutral: ["neu","中性"], mixed: ["neu","复杂"] };
+
+const $ = (id) => document.getElementById(id);
+const cardEls = {}; // uid -> {el, chips:{stage:chipEl}}
+
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  $("tab-run").style.display = name === "run" ? "" : "none";
+  $("tab-history").style.display = name === "history" ? "" : "none";
+  if (name === "history") loadHistory();
+}
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.tab)));
+
+function updateFields() {
+  const mode = $("mode").value;
+  $("f-limit").style.display = mode === "understand" ? "none" : "";
+  $("f-creator").style.display = mode === "creator" ? "" : "none";
+  $("f-handoff").style.display = mode === "understand" ? "" : "none";
+  $("f-today").style.display = mode === "understand" ? "none" : "";
+  const plat = $("platform").value;
+  const browserPlat = ["dy","ks","wb","xhs"].includes(plat);
+  if (mode !== "understand" && browserPlat) {
+    $("hint").textContent = "浏览器平台需先在本机用 scripts/fetch_local.py 采集，再用「理解已采集目录」模式处理。B 站可直接运行。";
+  } else if (mode === "understand") {
+    $("hint").textContent = "指向本机采集后同步到服务器的目录（含 items.json 与视频文件）。";
+  } else {
+    $("hint").textContent = "";
+  }
+}
+["mode","platform"].forEach(id => $(id).addEventListener("change", updateFields));
+updateFields();
+
+function ensureCard(uid, title, meta) {
+  if (cardEls[uid]) {
+    if (title) cardEls[uid].el.querySelector(".title").textContent = title;
+    return cardEls[uid];
+  }
+  const el = document.createElement("div");
+  el.className = "card active";
+  el.innerHTML = `
+    <div class="title">${title || uid}</div>
+    <div class="meta">${meta || ""}</div>
+    <div class="chips"></div>
+    <div class="body"></div>`;
+  $("cards").appendChild(el);
+  cardEls[uid] = { el, chips: {} };
+  return cardEls[uid];
+}
+
+function setChip(uid, stage, cls, text) {
+  const card = cardEls[uid];
+  if (!card) return;
+  let chip = card.chips[stage];
+  if (!chip) {
+    chip = document.createElement("span");
+    chip.className = "chip";
+    card.el.querySelector(".chips").appendChild(chip);
+    card.chips[stage] = chip;
+  }
+  chip.className = "chip " + (cls || "");
+  chip.textContent = text || STAGE_LABELS[stage] || stage;
+}
+
+function renderSummaryInto(bodyEl, s, item) {
+  if (!s) return;
+  const sent = SENTIMENT[s.sentiment] || SENTIMENT.neutral;
+  const kpts = (s.key_points || []).map(k => `<li>${escapeHtml(k)}</li>`).join("");
+  const tags = (s.topics || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("");
+  const promo = s.is_promotion ? `<span class="badge promo">推广</span>` : "";
+  const url = item && item.url ? `<a href="${item.url}" target="_blank">原视频 ↗</a>` : "";
+  bodyEl.innerHTML = `
+    <div class="oneliner">${escapeHtml(s.one_liner || "")}</div>
+    <ul class="kpts">${kpts}</ul>
+    <div class="tags">${tags}</div>
+    <div class="row" style="margin-top:6px; gap:8px">
+      <span class="badge ${sent[0]}">${sent[1]}</span>${promo}
+      <span class="conf">置信度 ${(s.confidence ?? 0).toFixed(2)}</span>
+      ${url}
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+
+function log(msg) {
+  const el = $("log");
+  el.textContent += msg + "\n";
+  el.scrollTop = el.scrollHeight;
+  $("logPanel").style.display = "";
+}
+
+let es = null;
+
+async function run() {
+  const mode = $("mode").value;
+  const body = {
+    mode,
+    platform: $("platform").value,
+    profile: $("profile").value,
+    device: $("device").value,
+    limit: parseInt($("limit").value || "3", 10),
+    today: $("today").value === "true",
+    creator_id: $("creator_id").value.trim(),
+    handoff_dir: $("handoff_dir").value.trim(),
+  };
+  // reset UI
+  Object.keys(cardEls).forEach(k => delete cardEls[k]);
+  $("cards").innerHTML = "";
+  $("log").textContent = "";
+  $("liveWrap").style.display = "";
+  $("runBtn").disabled = true;
+  $("status").textContent = "启动中…";
+
+  let res;
+  try {
+    res = await fetch("/api/run", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+  } catch (e) { $("status").textContent = "请求失败：" + e; $("runBtn").disabled = false; return; }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({detail: res.statusText}));
+    $("status").textContent = "无法启动：" + (err.detail || res.status);
+    $("runBtn").disabled = false;
+    return;
+  }
+  const { run_id } = await res.json();
+  $("status").textContent = "运行中 · " + run_id;
+  if (es) es.close();
+  es = new EventSource(`/api/runs/${run_id}/events`);
+  es.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
+  es.addEventListener("end", (ev) => {
+    const payload = JSON.parse(ev.data);
+    finish(payload);
+    es.close();
+  });
+  es.onerror = () => { $("status").textContent = "连接中断"; $("runBtn").disabled = false; };
+}
+
+function handleEvent(e) {
+  const uid = e.video_uid;
+  switch (e.kind) {
+    case "run_start":
+      $("liveTitle").textContent = e.message || "流水线";
+      break;
+    case "stage_start":
+      if (uid) setChip(uid, e.stage, "active");
+      else $("status").textContent = (STAGE_LABELS[e.stage] || e.stage) + "…";
+      break;
+    case "stage_done":
+      if (uid) setChip(uid, e.stage, "done",
+        `${STAGE_LABELS[e.stage] || e.stage} ${e.elapsed_sec.toFixed(1)}s`);
+      else {
+        $("status").textContent = e.message || "完成";
+        // 榜单发现：预建卡片
+        (e.data && e.data.items || []).forEach(it => {
+          const c = ensureCard(it.uid, it.title, `${it.author_name || ""} · ${it.platform}`);
+          c.el.classList.remove("active");
+        });
+      }
+      break;
+    case "stage_skipped":
+      if (uid) setChip(uid, e.stage, "skip", (STAGE_LABELS[e.stage] || e.stage) + " 跳过");
+      break;
+    case "stage_failed":
+      if (uid) setChip(uid, e.stage, "fail", (STAGE_LABELS[e.stage] || e.stage) + " 失败");
+      break;
+    case "video_start": {
+      const item = e.data && e.data.uid ? e.data : null;
+      const c = ensureCard(uid, e.message, item ? `${item.author_name || ""} · ${item.platform}` : "");
+      c.el.classList.add("active");
+      break;
+    }
+    case "video_done": {
+      const c = cardEls[uid];
+      if (c) {
+        c.el.classList.remove("active"); c.el.classList.add("done");
+        const s = e.data && e.data.summary;
+        if (s) renderSummaryInto(c.el.querySelector(".body"), s, null);
+        else c.el.querySelector(".body").innerHTML = `<div class="oneliner">${escapeHtml(e.message||"")}</div>`;
+      }
+      break;
+    }
+    case "video_failed": {
+      const c = cardEls[uid];
+      if (c) { c.el.classList.remove("active"); c.el.classList.add("error");
+        c.el.querySelector(".body").innerHTML = `<div class="oneliner" style="color:var(--err)">${escapeHtml(e.message||"失败")}</div>`; }
+      break;
+    }
+    case "run_done":
+      $("status").textContent = e.message || "完成";
+      break;
+    case "log":
+      log(e.message);
+      break;
+  }
+}
+
+function finish(payload) {
+  $("runBtn").disabled = false;
+  const r = payload.result;
+  if (payload.status === "error") { $("status").textContent = "运行失败，见日志"; return; }
+  if (!r) return;
+  $("status").textContent = `完成 ${Math.round(r.success_rate*100)}% · ${r.videos.length} 条 · ${r.elapsed_sec}s`;
+  // 用最终结果补全卡片（含要点/话题/情感）
+  (r.videos || []).forEach(v => {
+    if (!v.summary) return;
+    const c = cardEls[v.item.uid] || ensureCard(v.item.uid, v.item.title, v.item.author_name);
+    c.el.classList.remove("active"); c.el.classList.add("done");
+    renderSummaryInto(c.el.querySelector(".body"), v.summary, v.item);
+  });
+}
+
+$("runBtn").addEventListener("click", run);
+
+// ---------------- 历史 ----------------
+async function loadHistory() {
+  const rows = await fetch("/api/history").then(r => r.json()).catch(() => []);
+  const tb = $("histTable").querySelector("tbody");
+  tb.innerHTML = "";
+  $("histEmpty").style.display = rows.length ? "none" : "";
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+    tr.className = "click";
+    tr.innerHTML = `<td>${row.created_at||row.started_at||""}</td><td>${row.mode}</td>
+      <td>${row.platform}</td><td>${row.profile}</td>
+      <td>${Math.round((row.success_rate||0)*100)}% (${row.succeeded}/${row.total})</td>
+      <td>${row.elapsed_sec}s</td>`;
+    tr.addEventListener("click", () => showHistoryDetail(row.run_id));
+    tb.appendChild(tr);
+  });
+}
+async function showHistoryDetail(runId) {
+  const data = await fetch(`/api/history/${runId}`).then(r => r.json()).catch(() => null);
+  const wrap = $("histDetail");
+  if (!data) { wrap.innerHTML = ""; return; }
+  const cards = (data.videos || []).map(v => {
+    const s = { one_liner: v.one_liner, key_points: v.key_points, topics: v.topics,
+      sentiment: v.sentiment, is_promotion: v.is_promotion, confidence: v.confidence };
+    const div = document.createElement("div");
+    div.className = "card done";
+    div.innerHTML = `<div class="title">${escapeHtml(v.title||v.uid)}</div>
+      <div class="meta">${escapeHtml(v.author_name||"")} · ${v.platform}</div><div class="body"></div>`;
+    renderSummaryInto(div.querySelector(".body"), s, { url: v.url });
+    return div;
+  });
+  wrap.innerHTML = `<div class="panel"><h2>${escapeHtml(data.scenario||runId)}</h2><div class="cards"></div></div>`;
+  const c = wrap.querySelector(".cards");
+  cards.forEach(x => c.appendChild(x));
+}
+</script>
+</body>
+</html>
