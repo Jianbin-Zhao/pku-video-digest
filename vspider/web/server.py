@@ -23,6 +23,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import (
     FileResponse,
@@ -328,8 +329,35 @@ def create_app() -> FastAPI:
     # VSPIDER_WEB_BROWSER=1 放开；服务器部署保持默认拦截并指路混合流程。
     allow_browser = os.environ.get("VSPIDER_WEB_BROWSER", "") == "1"
 
+    # gpu/cpu 档依赖本地推理服务。提交前先探测一次，选错档位（比如在没起
+    # vLLM 的本机选 gpu）就当场给可读提示，而不是整批跑到归纳那步才 ConnectError。
+    _LOCAL_LLM = {
+        "gpu": ("VSPIDER_VLLM_BASE_URL", "http://127.0.0.1:8000/v1", "vLLM"),
+        "cpu": ("VSPIDER_LLAMA_BASE_URL", "http://127.0.0.1:8080/v1", "llama.cpp"),
+    }
+
+    async def _ensure_llm_reachable(profile: str) -> None:
+        if profile not in _LOCAL_LLM:
+            return
+        env_name, fallback, engine = _LOCAL_LLM[profile]
+        base = (os.environ.get(env_name) or fallback).rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+                await client.get(f"{base}/models")
+        except httpx.TransportError as exc:
+            raise HTTPException(
+                400,
+                detail=(
+                    f"{profile} 档的归纳引擎连不上（{engine} @ {base}，"
+                    f"{type(exc).__name__}）。该引擎通常部署在 GPU 服务器上；"
+                    f"本机运行请改选 api 档，或先启动本地 {engine} 服务"
+                    f"（也可在 .env 用 {env_name} 指向可用地址）。"
+                ),
+            ) from exc
+
     @app.post("/api/run")
     async def start_run(req: RunRequest) -> dict[str, str]:
+        await _ensure_llm_reachable(req.profile)
         platform = resolve_platform(req.platform)
         if (
             req.mode in ("rank", "creator", "search")
