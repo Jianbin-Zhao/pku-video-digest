@@ -18,11 +18,18 @@ vspider = "vspider.cli:app"
 
 [project.optional-dependencies]
 download = ["yt-dlp>=2026.1.1"]
-asr = ["funasr>=1.2.0", "onnxruntime>=1.20.0", "modelscope>=1.20.0"]
+# funasr 不会自动带 torch/torchaudio（官方要求单独装），soundfile 是本项目直接 import 的
+asr = [
+    "funasr>=1.2.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "soundfile>=0.12.0",
+    "onnxruntime>=1.20.0",
+    "modelscope>=1.20.0",
+]
 ocr = ["rapidocr-onnxruntime>=1.4.0"]
-# Web 用 FastAPI 自带的 StreamingResponse 做 SSE，不额外依赖 sse-starlette。
-# SQLite 落库走标准库 sqlite3，无需 sqlalchemy/aiosqlite。
-serve = ["fastapi>=0.110.2", "uvicorn>=0.29.0"]
+serve = ["fastapi>=0.110.2", "uvicorn>=0.29.0", "sse-starlette>=2.1.0"]
+store = ["sqlalchemy>=2.0.43", "aiosqlite>=0.21.0"]
 
 [build-system]
 requires = ["hatchling"]
