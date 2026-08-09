@@ -30,6 +30,21 @@ _LOG = logging.getLogger(__name__)
 _CANDIDATE_MULTIPLIER = 3
 
 
+def _unwrap_error(exc: BaseException) -> str:
+    """展开 tenacity.RetryError，拿到底层真正的平台报错。
+
+    否则日志里只有 "RetryError[<Future ...>]"，
+    看不到"账号没有权限访问"这类关键信息。
+    """
+    last_attempt = getattr(exc, "last_attempt", None)
+    if last_attempt is not None and last_attempt.exception() is not None:
+        exc = last_attempt.exception()
+    text = str(exc) or type(exc).__name__
+    if "没有权限" in text:
+        return f"{text}（账号被平台临时风控，请过几小时再试或换账号）"
+    return f"{type(exc).__name__}: {text}"
+
+
 @dataclass
 class KeywordBudget:
     """限制一次采集能花多少次请求，以及失败到什么程度就收手。"""
@@ -122,13 +137,13 @@ async def collect_by_keywords(
             await asyncio.sleep(budget.delay_sec * 2)
             continue
         except Exception as exc:  # noqa: BLE001
-            budget.record_failure(f"{type(exc).__name__}: {exc}")
+            detail = _unwrap_error(exc)
+            budget.record_failure(detail)
             _LOG.warning(
-                "%s 搜索 %r 出错：%s: %s",
+                "%s 搜索 %r 出错：%s",
                 platform_name,
                 keyword,
-                type(exc).__name__,
-                str(exc)[:140],
+                detail[:140],
             )
             if budget.tripped:
                 _LOG.warning("%s 连续出错，停止本次采集", platform_name)

@@ -88,7 +88,10 @@ class XhsRankingProvider(RankingProvider):
     async def search_videos(self, keyword: str, limit: int = 5) -> list[VideoItem]:
         """按关键词搜索视频笔记，按互动量排序（场景三）。"""
         client = await self._client()
-        payload = await client.get_note_by_keyword(keyword=keyword)
+        try:
+            payload = await client.get_note_by_keyword(keyword=keyword)
+        except Exception as exc:  # noqa: BLE001 - 统一翻译平台侧拒绝
+            raise RuntimeError(_translate_reject(exc)) from exc
         if payload and payload.get("success") is False:
             raise RuntimeError(f"小红书搜索被拒：{payload.get('msg', 'success=false')}")
         items = [
@@ -141,6 +144,25 @@ class XhsRankingProvider(RankingProvider):
         return take_top(
             collected, limit, RankSource.CREATOR_TIMELINE, category=creator_id
         )
+
+
+def _translate_reject(exc: Exception) -> str:
+    """把 MediaCrawler 抛出的重试链翻译成能指导行动的中文。
+
+    tenacity.RetryError 包着真正的 DataFetchError，直接往上抛用户只能看到
+    "RetryError[<Future ...>]"，完全不知道发生了什么。
+    """
+    cause: BaseException = exc
+    last_attempt = getattr(exc, "last_attempt", None)
+    if last_attempt is not None and last_attempt.exception() is not None:
+        cause = last_attempt.exception()
+    text = str(cause)
+    if "没有权限" in text:
+        return (
+            "小红书拒绝了本账号的数据请求（账号被临时风控，常见于当天"
+            "抓取频繁或刚重新登录）。请过几小时再试，或换一个账号登录。"
+        )
+    return f"小红书接口出错：{text}"
 
 
 def _parse_note(node: dict[str, Any]) -> VideoItem | None:
