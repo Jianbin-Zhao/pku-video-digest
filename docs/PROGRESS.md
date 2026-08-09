@@ -708,3 +708,15 @@ GPU 档归纳仅 1.73s，CPU 档单条归纳 60~77s（Qwen2.5-3B Q4 在 12 vCPU 
 - [x] CPU + GPU 端到端校验（各 2/2，总览+报告+入库全通）
 - [ ] B 站服务器直连：待用户提供 `BILI_COOKIE` 后复跑 rank/creator/search 取证
       （当前已用「本机采集 + 服务器理解」的混合路验证搜索场景端到端）
+
+## 交付收尾（2026-08-09 下午）
+
+- GitHub 已上线：<https://github.com/Jianbin-Zhao/pku-video-digest>
+  - `main` = plus 完整版；`baseline-v1.0` 分支 + `v1.0` 标签 = 基线快照。
+- Web 界面截图验收（Playwright，`scripts/shots.py`，本机起 uvicorn + 服务器真实库）：
+  仪表盘 / 搜索模式 / 历史列表 / 历史详情（含 digest 与卡片墙）/ HTML 报告页
+  五张全部正常，存于 `data/reports/shots/`。
+- 修复一处 UI bug：`.field { display:flex }` 覆盖了 `hidden` 属性，导致
+  关键词 / 创作者 / handoff 三个条件字段在所有模式下都显示。补
+  `.field[hidden] { display:none }` 后按场景正确显隐；已同步服务器
+  `/root/vspider_plus`。
