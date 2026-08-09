@@ -32,6 +32,15 @@ from vspider.settings import load_env  # noqa: E402
 
 POLL_SECONDS = 3
 
+# force 重登时按域名清 cookie。所有平台共用一个持久化浏览器上下文，
+# 不能整体 clear_cookies，否则其他平台的登录态陪葬。
+_COOKIE_DOMAINS: dict[str, str] = {
+    "dy": r".*douyin\.com",
+    "ks": r".*kuaishou\.com",
+    "wb": r".*(weibo\.com|weibo\.cn|sina\.com\.cn)",
+    "xhs": r".*xiaohongshu\.com",
+}
+
 
 async def show_status() -> None:
     """报告登录态提示，并明确说明它不是结论。
@@ -71,12 +80,21 @@ async def login(platform: Platform, timeout: int, force: bool = False) -> bool:
 
     async with MediaCrawlerSession(headless=False) as session:
         page = await session.page(platform)
-        # force 用于「已登录但账号被风控」的场景：换个小号重扫。
+        # force 用于「已登录但账号被风控」或「部分接口 token 过期」的场景。
         if not force and await session.is_logged_in(platform):
             print("检测到已是登录状态，无需重复登录（要换号请加 --force）。")
             return True
         if force:
-            print("强制重新登录：请在窗口里退出当前账号或直接扫码换号登录。")
+            # 必须先清掉旧 cookie：登录探测只看粗粒度信号（如 pong），
+            # 半失效的旧 cookie 会让轮询立即误报「已登录」，扫码根本没等到。
+            import re as _re
+
+            pattern = _COOKIE_DOMAINS.get(platform.value)
+            if pattern:
+                await page.context.clear_cookies(domain=_re.compile(pattern))
+                print("已清除该平台旧 cookie。")
+            await page.reload(wait_until="domcontentloaded")
+            print("强制重新登录：请在窗口里扫码登录。")
 
         print(f"浏览器已打开 {page.url}")
         print("请在窗口里完成登录（扫码或短信均可）。")
@@ -107,6 +125,10 @@ async def main() -> int:
     parser.add_argument("platforms", nargs="*", help="要登录的平台，可写多个")
     parser.add_argument("--status", action="store_true", help="只查看登录状态")
     parser.add_argument("--timeout", type=int, default=300, help="单个平台等待秒数")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="已登录也强制重扫（部分接口 token 过期、或要换号时用）",
+    )
     args = parser.parse_args()
 
     load_env()
@@ -126,7 +148,7 @@ async def main() -> int:
 
     results = {}
     for value in args.platforms:
-        results[value] = await login(Platform(value), args.timeout)
+        results[value] = await login(Platform(value), args.timeout, force=args.force)
 
     print("\n=== 结果 ===")
     for value, ok in results.items():
