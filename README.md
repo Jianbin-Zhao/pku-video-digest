@@ -91,10 +91,12 @@ Cookie 会写入本机 `.env`，不会打印到终端。
 
 ## 3. GPU 理解端
 
-服务器安装理解依赖：
+服务器代码固定放在 `/root/vspider`，与启动脚本保持一致：
 
 ```bash
-pip install -e ".[asr,ocr,serve]"
+git clone https://github.com/Jianbin-Zhao/pku-video-digest.git /root/vspider
+cd /root/vspider
+pip install -e ".[download,asr,ocr,serve]"
 ```
 
 下载 ASR 模型：
