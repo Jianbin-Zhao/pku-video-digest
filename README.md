@@ -9,7 +9,7 @@
 
 另外加了关键词搜索、整批热点总览、历史记录、断点续跑、Web 页面和报告导出。
 
-![Web 搜索与 GPU 配置](docs/images/01_dashboard.png)
+![Web 搜索与 GPU 配置](assets/01_dashboard.png)
 
 ## 处理流程
 
@@ -34,8 +34,6 @@
 - 五平台创作者场景：12/12
 - 五平台搜索“人工智能”：10/10
 - 合计 47 条 GPU 结果，47/47 成功
-
-详细记录在 `docs/EXPERIMENTS.md`。
 
 ## 1. 本机安装
 
@@ -79,7 +77,8 @@ VSPIDER_SSH_PASSWORD=
 四个浏览器平台共用持久化登录目录，通常只需扫一次：
 
 ```bash
-python scripts/login.py dy ks wb xhs
+python scripts/login_douyin.py
+python scripts/login.py ks wb xhs
 ```
 
 B站榜单和搜索可以匿名访问，创作者空间接口建议单独登录：
@@ -111,6 +110,7 @@ modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch \
 本项目默认 GPU 档为 Qwen3-8B-AWQ + vLLM：
 
 ```bash
+bash scripts/vllm_setup.sh
 bash scripts/vllm_restart.sh
 python scripts/preflight.py --side understand --profile gpu --device cuda:0
 ```
@@ -214,13 +214,13 @@ ssh -p <SSH端口> -L 6006:127.0.0.1:6006 root@<服务器地址>
 
 页面支持实时进度、结果卡片、整批总览和历史回看：
 
-![运行历史](docs/images/02_history.png)
+![运行历史](assets/02_history.png)
 
-![历史详情](docs/images/03_history_detail.png)
+![历史详情](assets/03_history_detail.png)
 
 每次运行都可以导出自包含 HTML 或 Markdown：
 
-![HTML 报告](docs/images/04_report.png)
+![HTML 报告](assets/04_report.png)
 
 命令行也能导出：
 
@@ -263,7 +263,7 @@ vspider/
 
 scripts/           安装、登录、采集、理解和测试脚本
 tools/remote.py    SSH 执行与文件同步
-docs/              设计、实验和进度记录
+assets/            README 界面截图
 ```
 
 ## 已知限制

@@ -18,3 +18,18 @@ build/
 data/probe/
 .vscode/
 .idea/
+
+# 本地开发记录与诊断脚本，不进入交付仓库
+docs/
+douyin_hot_sample.json
+scripts/probe_*.py
+scripts/bench_*.py
+scripts/check_*.py
+scripts/compare_models.py
+scripts/e2e_test.py
+scripts/fetch_corpus.py
+scripts/fix_deps.sh
+scripts/launch_setup.sh
+scripts/record_demo.py
+scripts/shots.py
+scripts/smoke_api.py
