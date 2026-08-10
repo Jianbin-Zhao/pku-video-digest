@@ -1,17 +1,4 @@
-"""抖音扫码登录（可靠版）。
-
-为什么不用通用的 login.py：它靠 pong 判断登录，而抖音匿名态 pong 也返回 True
-（sessionid 缺失但 pong=True，诊断见 scripts/probe_dy_auth.py），会误判成「已登录」
-直接退出，根本不给扫码的机会。
-
-这里只认真正的身份 cookie——sessionid / sessionid_ss / sid_tt，
-它们只有在真正登录后才会下发。轮询到任意一个即视为成功，
-再多等几秒让平台把风控 cookie 补齐，然后落盘到持久化目录 .browser。
-
-用法：
-    python scripts/login_douyin.py            # 默认等 300 秒
-    python scripts/login_douyin.py --timeout 420
-"""
+"""抖音扫码登录。"""
 
 from __future__ import annotations
 
@@ -29,7 +16,6 @@ from vspider.mediacrawler.session import (  # noqa: E402
 from vspider.models import Platform  # noqa: E402
 from vspider.settings import configure_stdio, load_env  # noqa: E402
 
-# 只有真正登录后才会出现的身份 cookie。匿名会话不会有。
 IDENTITY_KEYS = ("sessionid", "sessionid_ss", "sid_tt")
 POLL_SECONDS = 3
 
@@ -45,7 +31,6 @@ async def main() -> int:
     print(f"登录态将保存到：{DEFAULT_BROWSER_DATA}")
     print("即将打开抖音，请在弹出的浏览器窗口里扫码登录。\n")
 
-    # headless=False：必须有可见窗口给人扫码。
     async with MediaCrawlerSession(headless=False) as session:
         page = await session.page(Platform.DOUYIN)
 

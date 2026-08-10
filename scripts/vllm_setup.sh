@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# 在服务器上准备本地 GPU 归纳后端：独立 venv + vLLM + Qwen3-8B-AWQ。
-#
-# 为什么单独建环境：vLLM 会钉死一套 torch，直接装进主环境会把 funasr 依赖的
-# torch 2.8.0+cu128 换掉，连带弄坏 torchaudio 与 CUDA 匹配。推理服务通过
-# HTTP(127.0.0.1:8000) 与流水线解耦，各用各的环境最干净。
-#
-# 为什么用 venv 而不是 conda：conda 在本机镜像上 solve repodata 会卡十几分钟，
-# venv 由 base python 直接建、pip 走已配好的阿里云镜像，快且省事。装在数据盘
-# 上（系统盘只有 30G，vLLM+torch 约 6G 放不下）。
+# 安装 vLLM 与 Qwen3-8B-AWQ。
 set -euo pipefail
 
 VENV=/root/autodl-tmp/vllm-venv

@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
-# 准备 CPU 纯本地归纳后端：llama.cpp 的 OpenAI 兼容 server + 小量化模型。
-#
-# 目的：正面回应「无显卡也能本地跑」。这条路全程不碰 GPU——
-# ASR(SenseVoice) 走 CPU、OCR 本就在 CPU、归纳走 llama.cpp CPU 推理。
-#
-# 独立 venv：llama-cpp-python[server] 会拉 fastapi/uvicorn 等，
-# 与主环境(funasr)隔离，避免版本互踩。推理服务通过 HTTP(127.0.0.1:8080)
-# 与流水线解耦。
-#
-# 模型选 Qwen2.5-3B-Instruct（非思考模型，省去关思考的麻烦；3B 在 12 vCPU 上
-# 出 ~1K token 摘要约几十秒，是 CPU 上可接受的档位）。GGUF Q4_K_M ~2GB。
+# 安装 llama.cpp CPU 归纳后端。
 set -euo pipefail
 
 VENV=/root/autodl-tmp/llama-venv

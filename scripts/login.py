@@ -1,17 +1,4 @@
-"""交互式登录，把登录态存进持久化浏览器配置。
-
-为什么必须有这一步：抖音的搜索接口匿名调用会返回
-status_code=2483「请先登录，再继续搜索吧」，小红书同理。
-这不是签名能绕过的——签名对了，平台照样要求身份。
-
-登录态存在项目根的 .browser 目录里，扫一次能用很久，
-之后所有无头运行都直接复用，不需要再有人值守。
-
-用法：
-    python scripts/login.py dy          # 单个平台
-    python scripts/login.py dy xhs ks   # 依次登录多个
-    python scripts/login.py --status    # 只看当前登录状态
-"""
+"""登录浏览器平台并保存会话。"""
 
 from __future__ import annotations
 
@@ -32,8 +19,7 @@ from vspider.settings import load_env  # noqa: E402
 
 POLL_SECONDS = 3
 
-# force 重登时按域名清 cookie。所有平台共用一个持久化浏览器上下文，
-# 不能整体 clear_cookies，否则其他平台的登录态陪葬。
+# force 只清理目标平台 Cookie。
 _COOKIE_DOMAINS: dict[str, str] = {
     "dy": r".*douyin\.com",
     "ks": r".*kuaishou\.com",
@@ -43,13 +29,7 @@ _COOKIE_DOMAINS: dict[str, str] = {
 
 
 async def show_status() -> None:
-    """报告登录态提示，并明确说明它不是结论。
-
-    这里刻意不下判断。登录态只能通过间接信号猜，而间接信号两边都会错：
-    cookie 存在不代表登录（小红书匿名访客也有 web_session），
-    pong 否认也不代表没登录（IP 被风控时它对着已登录账号返回 False）。
-    要确认能不能用，只有 scripts/verify_all.py 那条路——真的取一次数据。
-    """
+    """显示登录提示，最终状态以真实请求为准。"""
     print(f"登录态目录：{DEFAULT_BROWSER_DATA}")
     if not DEFAULT_BROWSER_DATA.exists():
         print("尚未创建，说明还没有登录过任何平台。")

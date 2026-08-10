@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# 下载 ASR 所需模型权重。
-#
-# 为什么不直接用 modelscope 的 snapshot_download：
-# 它走单连接，实测在这台机器上只有 400~750 kB/s，且在 97% 处断连后
-# 不能可靠续传、直接从头重下。改用 aria2c 开 16 连接后实测 12 MiB/s，
-# 快约 30 倍，且断点续传可靠。
-#
-# 小文件（配置、词表）仍交给 modelscope，量小且省去手工维护文件清单。
+# 下载 ASR 模型。
 
 set -uo pipefail
 

@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-# GPU 服务器环境搭建。可重复执行，已完成的步骤会跳过。
-#
-# 环境策略：直接补全镜像自带的 conda base 环境（已有 torch 2.8.0+cu128），
-# 不额外建虚拟环境。归纳走阿里云百炼 API，因此不装 vLLM、不下载本地 LLM 权重，
-# 省掉约 14G 下载。日后若要切本地 LLM，单独跑 server_setup_local_llm.sh。
-#
-# 网络策略：全程直连，不启用 AutoDL 的 network_turbo。
-#   镜像里 pip 已指向 mirrors.aliyun.com，HF 走 hf-mirror.com，模型走魔搭，
-#   三者都在国内。实测开了学术加速反而把魔搭下载从数十 MB/s 拖到不足 1 MB/s，
-#   因为流量被绕去了境外出口。
-#
-# 全部模型与数据落在 /root/autodl-tmp（50G 数据盘），不占 30G 系统盘。
+# 初始化 GPU 服务器环境。
 
 set -uo pipefail
 
