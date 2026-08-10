@@ -1,17 +1,4 @@
-"""关键帧 OCR，基于 RapidOCR（onnxruntime 后端）。
-
-选它而非 PaddleOCR 的理由：纯 onnxruntime 依赖，不需要装 paddlepaddle，
-CPU 上就够快，且完全不占显存——显存要留给 ASR 和视觉理解。
-
-这一层的作用是把"无人声视频"从死局里救出来。
-实测样本《蒙德：高清重置》：ASR 只识别出 3 个字（全是音乐符号），
-而 OCR 从 24 帧里抽出 663 字的有效地名，归纳质量因此从"必然编造"变成置信度 0.85。
-
-并行策略：首版串行执行 24 帧耗时 21.4 秒，占整条流水线 49%，是最大瓶颈。
-改为线程池并行，每个线程持有独立引擎实例——共享单个 RapidOCR 实例虽然
-多数情况下能工作，但它内部的 det/cls/rec 三个 session 之间有可变中间状态，
-并发下不可靠，为几十 MB 的额外内存换取确定性是值得的。
-"""
+"""RapidOCR 关键帧文字识别。"""
 
 from __future__ import annotations
 
@@ -27,8 +14,7 @@ from typing import Any
 from vspider.media.keyframe import Keyframe
 from vspider.models import OcrFrame, OcrResult
 
-# 平台水印、UI 控件文案、账号引导语。这些在几乎每一帧都出现，
-# 不过滤会占满 OCR 预算并把真正的内容信息挤出上下文。
+# 常见平台水印和控件文字。
 _NOISE_LITERALS = {
     "抖音", "快手", "小红书", "哔哩哔哩", "bilibili", "微博", "douyin", "kuaishou",
     "关注", "已关注", "点赞", "收藏", "分享", "评论", "转发", "更多",

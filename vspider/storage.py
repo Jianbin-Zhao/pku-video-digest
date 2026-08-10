@@ -1,13 +1,4 @@
-"""SQLite 落库 + 断点续跑支持。
-
-用标准库 sqlite3 而不是 sqlalchemy/aiosqlite，理由和 settings 一样：
-少一个安装依赖，本地 venv 与服务器 conda base 都能零配置跑起来。
-写入只在每个 run 结束时发生一次，读取都是小查询，同步调用足够，
-用一把锁保证多协程/线程安全（check_same_thread=False）。
-
-断点续跑：视频以 uid（platform:video_id）为主键去重。同一条视频若此前已
-成功归纳，可通过 processed_uids() 查到并跳过，避免重复下载与推理。
-"""
+"""SQLite 历史记录和断点续跑。"""
 
 from __future__ import annotations
 

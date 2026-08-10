@@ -1,27 +1,4 @@
-"""本机侧：采集并下载视频，导出文件 + 元数据供服务器理解。
-
-混合部署的前半段。两类平台都能走这条路：
-
-  浏览器平台（抖音/快手/微博/小红书）：采集必须在本机做
-      （干净家庭 IP + 已登录），这是设计使然。
-  B 站：本来在服务器直连即可，但云服务器 IP 常被 B 站风控（-352 / v_voucher）。
-      B 站免登录，本机家庭 IP 却很干净，所以也可以走本机采集这条兜底路。
-
-下载完把视频文件和一份 items.json 放到同一个目录，整个目录传到服务器后，
-用 scripts/understand.py 接手做内容理解（ASR / OCR / 归纳 / 总览）。
-
-三种场景对应题面与 plus 拓展：
-    --limit N              场景一：今日榜单前 N
-    --creator <id> --today 场景二：某创作者今天发布的视频
-    --keyword <词>         场景三（plus）：按关键词搜索
-
-用法：
-    python scripts/fetch_local.py ks --limit 3
-    python scripts/fetch_local.py wb --creator <uid> --today
-    python scripts/fetch_local.py bili --keyword 人工智能 --limit 5
-输出：
-    data/handoff/<platform>/  下面是若干 mp4 和一个 items.json
-"""
+"""本机采集下载，导出视频与 items.json。"""
 
 from __future__ import annotations
 
@@ -67,8 +44,13 @@ async def _run(
     items = await _discover(provider, args)
     print(f"发现 {len(items)} 条")
     if not items:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        manifest = out_dir / "items.json"
+        manifest.write_text("[]\n", encoding="utf-8")
         print("没有可下载的条目，退出。")
-        return 1
+        print(f"已写入空清单：{manifest}")
+        # 指定创作者在今天没有投稿是合法业务结果；榜单/搜索为空仍需报失败。
+        return 0 if args.creator and args.today else 1
 
     downloader = build_downloader(platform, session=session)
     exported: list[dict] = []

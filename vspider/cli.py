@@ -1,15 +1,4 @@
-"""命令行入口。
-
-两条命令直接对应题面的两个验收场景：
-
-    vspider rank    --platform bili --limit 5           今日榜单前 5，下载并归纳
-    vspider creator --platform bili --id <mid> --today  某用户今天发布的视频
-
-五个平台共用这两条命令，差别被封在 registry 里：B 站直连官方接口，
-抖音/快手/微博/小红书要一个活的浏览器会话来算签名。
-浏览器会话必须贯穿整个运行——签名依赖页面里的 JS 环境，
-页面一关，后续所有请求都会失败。
-"""
+"""VSpider 命令行入口。"""
 
 from __future__ import annotations
 
@@ -19,9 +8,10 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -47,12 +37,32 @@ from vspider.registry import (
 )
 from vspider.settings import configure_stdio, load_env
 
+configure_stdio()
+
 app = typer.Typer(
     add_completion=False,
     help="多平台短视频榜单抓取与内容归纳",
     no_args_is_help=True,
 )
 console = Console()
+
+
+def _run_cli(
+    coroutine: Coroutine[Any, Any, RunResult], *, verbose: bool
+) -> RunResult:
+    """执行异步命令；默认给用户简洁错误，调试模式保留完整堆栈。"""
+    try:
+        return asyncio.run(coroutine)
+    except Exception as exc:  # noqa: BLE001
+        if verbose:
+            raise
+        console.print(f"\n[bold red]运行失败[/bold red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(1) from None
+
+
+def _exit_code(result: RunResult, *, allow_empty: bool = False) -> int:
+    """有成功结果，或业务上允许空集合时返回成功。"""
+    return 0 if result.succeeded or (allow_empty and not result.results) else 1
 
 
 @contextlib.asynccontextmanager
@@ -71,8 +81,7 @@ async def _session_for(platform: Platform, show_browser: bool) -> AsyncIterator[
         yield session
 
 
-# --fast 跳过 OCR 的转写字数阈值。低于它说明视频可能靠画面传达信息，
-# 仍走 OCR 兜底；高于它时 OCR 的边际贡献很小（详见 PipelineConfig 注释）。
+# fast 模式的 OCR 跳过阈值。
 _FAST_OCR_THRESHOLD = 200
 
 
@@ -89,18 +98,17 @@ def _build(
     skip_uids: frozenset[str] = frozenset(),
     fast: bool = False,
     digest: bool = False,
+    max_duration: int = 1800,
 ) -> Orchestrator:
     paths = Paths.from_env()
 
     config = PipelineConfig(
         data_root=paths.data_root,
-        # 只要文字归纳时可以只下音频（体积通常只有完整视频的 2%~5%），
-        # 但那样就没有画面可供 OCR，无人声视频会彻底失去信息来源，
-        # 所以默认取完整视频。
         download_mode=DownloadMode.AUDIO_ONLY if audio_only else DownloadMode.VIDEO,
         max_download=concurrency,
         max_audio=concurrency,
         max_summarize=max(concurrency, 2),
+        max_duration_sec=max_duration,
         enable_escalation=escalate,
         skip_uids=skip_uids,
         enable_digest=digest,
@@ -147,6 +155,9 @@ def rank(
         True, "--digest/--no-digest", help="整批完成后生成跨视频总览"
     ),
     concurrency: int = typer.Option(3, "--concurrency", "-j", help="下载与归纳并发度"),
+    max_duration: int = typer.Option(
+        1800, "--max-duration", help="视频最大秒数；0 表示不限时，严格保留原榜单名次"
+    ),
     resume: bool = typer.Option(
         False, "--resume", help="断点续跑：跳过 SQLite 里已成功归纳过的视频"
     ),
@@ -177,6 +188,7 @@ def rank(
                 skip_uids,
                 fast=fast,
                 digest=digest,
+                max_duration=max_duration,
             )
             try:
                 return await orchestrator.run_ranking(
@@ -185,12 +197,12 @@ def rank(
             finally:
                 await orchestrator.aclose()
 
-    result = asyncio.run(run())
+    result = _run_cli(run(), verbose=verbose)
     print_report(result, console=console)
     _print_digest(result)
     _dump(result, out)
     _persist(storage, result, mode="rank", platform=platform, profile=profile)
-    raise typer.Exit(0 if result.succeeded else 1)
+    raise typer.Exit(_exit_code(result, allow_empty=resume))
 
 
 @app.command()
@@ -214,6 +226,9 @@ def creator(
         True, "--digest/--no-digest", help="整批完成后生成跨视频总览"
     ),
     concurrency: int = typer.Option(3, "--concurrency", "-j", help="下载与归纳并发度"),
+    max_duration: int = typer.Option(
+        1800, "--max-duration", help="视频最大秒数；0 表示不限时"
+    ),
     resume: bool = typer.Option(
         False, "--resume", help="断点续跑：跳过 SQLite 里已成功归纳过的视频"
     ),
@@ -254,6 +269,7 @@ def creator(
                 skip_uids,
                 fast=fast,
                 digest=digest,
+                max_duration=max_duration,
             )
             try:
                 return await orchestrator.run_creator(
@@ -262,12 +278,13 @@ def creator(
             finally:
                 await orchestrator.aclose()
 
-    result = asyncio.run(run())
+    result = _run_cli(run(), verbose=verbose)
     print_report(result, console=console)
     _print_digest(result)
     _dump(result, out)
     _persist(storage, result, mode="creator", platform=platform, profile=profile)
-    raise typer.Exit(0 if result.succeeded else 1)
+    # 今天无投稿属于正常结果。
+    raise typer.Exit(_exit_code(result, allow_empty=True))
 
 
 @app.command()
@@ -287,6 +304,9 @@ def search(
         True, "--digest/--no-digest", help="跨平台汇总后生成整体总览"
     ),
     concurrency: int = typer.Option(3, "--concurrency", "-j", help="下载与归纳并发度"),
+    max_duration: int = typer.Option(
+        1800, "--max-duration", help="视频最大秒数；0 表示不限时"
+    ),
     resume: bool = typer.Option(
         False, "--resume", help="断点续跑：跳过 SQLite 里已成功归纳过的视频"
     ),
@@ -320,8 +340,8 @@ def search(
             max_download=concurrency,
             max_audio=concurrency,
             max_summarize=max(concurrency, 2),
+            max_duration_sec=max_duration,
             skip_uids=skip_uids,
-            # 单平台批次不做总览，总览在跨平台汇总后统一做一次。
             enable_digest=False,
             skip_ocr_if_transcript_chars=_FAST_OCR_THRESHOLD if fast else 0,
         )
@@ -346,7 +366,6 @@ def search(
                         partial = await orchestrator.run_search(keyword, limit=limit)
                         all_results.extend(partial.results)
                     except Exception as exc:  # noqa: BLE001
-                        # 单个平台失败（风控/登录态失效）不拖垮其余平台。
                         console.print(
                             f"[red]{target.value} 搜索失败："
                             f"{type(exc).__name__}: {str(exc)[:160]}[/red]"
@@ -382,12 +401,12 @@ def search(
                     with contextlib.suppress(Exception):
                         await close()
 
-    result = asyncio.run(run())
+    result = _run_cli(run(), verbose=verbose)
     print_report(result, console=console)
     _print_digest(result)
     _dump(result, out)
     _persist(storage, result, mode="search", platform=platforms, profile=profile)
-    raise typer.Exit(0 if result.succeeded else 1)
+    raise typer.Exit(_exit_code(result, allow_empty=resume))
 
 
 @app.command()
@@ -474,8 +493,6 @@ def _persist(
 
 def _setup(verbose: bool) -> None:
     configure_stdio()
-    # 采集层用 warning 报告「某个热词被限流了」这类可恢复问题。
-    # 不打开的话，被平台拒绝会表现成安静的「没有结果」，无从排查。
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.WARNING,
         format="[!] %(message)s",

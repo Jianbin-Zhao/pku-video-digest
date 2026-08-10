@@ -1,19 +1,4 @@
-"""微博榜单发现。
-
-微博和其他四个平台有个本质差异：**它不是视频平台**。
-绝大多数微博是纯文字或图文，带视频的是少数。所以这里每一步都要显式筛选出
-page_info.type == "video" 的条目，否则榜单里会混进一堆没法下载的纯文本微博。
-
-两级策略：
-  一级 视频社区频道
-       m.weibo.cn 的 containerid 频道里有视频专区，返回的就是视频流，
-       最接近「视频榜单」。
-  二级 热搜词搜索后筛视频
-       频道不可用时，取热搜词去搜，再把非视频条目剔掉。
-
-MediaCrawler 的微博模块只处理图片，视频直链要自己从 page_info 里取，
-所以这里额外提供 extract_video_url 供下载层复用。
-"""
+"""微博视频榜单、搜索和创作者数据。"""
 
 from __future__ import annotations
 
@@ -28,8 +13,6 @@ from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
 
 _INDEX_URI = "/api/container/getIndex"
-# 视频相关频道，按优先级尝试。微博经常调整 containerid，
-# 所以列多个候选，逐个试到能用为止。
 _VIDEO_CONTAINERS = (
     "102803_ctg1_4188_-_ctg1_4188",
     "102803_ctg1_4288_-_ctg1_4288",

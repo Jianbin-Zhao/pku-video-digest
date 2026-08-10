@@ -1,10 +1,15 @@
-"""按阶段统计历史运行的耗时，回答"到底慢在哪"。"""
+"""统计各阶段耗时。"""
 import json
 import sqlite3
 import sys
 from collections import defaultdict
+from pathlib import Path
 
-db = sys.argv[1] if len(sys.argv) > 1 else r"D:\pku_exam_plus\data\vspider.db"
+db = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else Path(__file__).resolve().parent.parent / "data" / "vspider.db"
+)
 con = sqlite3.connect(db)
 
 print("run_id | 档位 | 视频时长 | 各阶段耗时")

@@ -1,218 +1,280 @@
-# vspider · 多平台短视频榜单发现 · 下载 · 内容归纳
+# VSpider
 
-支持 **B 站 / 抖音 / 快手 / 微博 / 小红书** 五个平台的视频搜索抓取，下载后对内容做
-结构化文字归纳（一句话摘要、要点、话题、情感、推广识别）。覆盖题面两个验收场景：
+五个平台的视频采集、下载和内容归纳工具，支持 B站、抖音、快手、微博和小红书。
 
-1. **场景一**：今天排行榜前 N 的视频，下载并归纳。
-2. **场景二**：指定用户今天发布的视频，下载并归纳。
+老师题目里的两种用法都能直接跑：
 
-> **plus 拓展版**：本目录（`pku_exam_plus`）在 baseline（`v1.0`）之上做了四项拓展——
-> ① **场景三·跨平台关键词搜索**（一个词跨平台拉最热的几条一起看）；
-> ② **批次总览**（整批跑完再 LLM 归纳一层「这批整体在讲什么」+ 优先观看项）；
-> ③ **报告导出**（一次运行→自包含 HTML / Markdown，可直接分享）；
-> ④ **fast 模式 + 风控稳健性**（转写充分时跳过 OCR；B 站 v_voucher 软风控退避）。
-> 外加 **Forest 深色系新 Web 界面**。用法见下方「拓展能力（plus）」。
+- 查看当前榜单前 N 条，下载视频并归纳内容
+- 获取指定创作者今天发布的视频，下载并归纳内容
 
-以 [MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) 为**只读库依赖**（不改其源码，
-保留上游维护红利），在其之上自建榜单发现、语音识别、画面 OCR、多源融合归纳与任务编排。
-设计理由与改进点见 [`docs/DESIGN.md`](docs/DESIGN.md)，全部实测数据见 [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)，
-逐日进度见 [`docs/PROGRESS.md`](docs/PROGRESS.md)。
+另外加了关键词搜索、整批热点总览、历史记录、断点续跑、Web 页面和报告导出。
 
----
+![Web 搜索与 GPU 配置](docs/images/01_dashboard.png)
 
-## 架构
+## 处理流程
 
-```
-发现 ──► 下载 ──► 抽音频 ──► 语音识别(ASR) ─┐
-                └► 关键帧 ──► 画面文字(OCR) ─┼─► 多源融合 ──► LLM 归纳 ──► SQLite 入库
-                                             │
-   平台元数据 / 高赞评论 / 互动数据 ─────────┘
+```text
+平台发现 -> 视频下载 -> 音频抽取 -> SenseVoice ASR
+                         -> 关键帧 -> RapidOCR
+标题 / 作者 / 互动数据 ----------------------> Qwen 结构化归纳
+                                              -> SQLite / 总览 / 报告
 ```
 
-- 采集层与理解层**解耦**：所有平台原始响应归一化成统一 `VideoItem`，后续阶段平台无关。
-- 编排器按资源类型分别限流并发（下载 I/O、ffmpeg、ASR 独占、OCR 线程池、归纳 I/O），
-  单条视频失败被隔离，不拖垮整批；同时对外发**事件流**，CLI 渲染成终端进度，
-  Web 经 SSE 推给浏览器做实时可视化。
+单条视频会输出：
 
-### 三档部署形态（`--profile`）
+- 一句话摘要
+- 3～5 个内容要点
+- 话题、情感倾向、广告判断
+- 置信度
+- ASR、OCR、下载和归纳耗时
 
-| profile | 归纳后端 | ASR / OCR | 适用 |
-| --- | --- | --- | --- |
-| `api` | 阿里云百炼（qwen-flash 等） | 本地 | 开发调试、演示、质量上限对照 |
-| `gpu` | 服务器 vLLM 起 Qwen3-8B-AWQ | 本地（GPU/CPU 可选） | **完全本地、无外部依赖** |
-| `cpu` | 本地 llama.cpp 起 Qwen2.5-3B-GGUF | 本地 CPU | **无显卡也能全本地跑** |
+2026-08-10 使用 RTX 4090 做过一次完整验收：
 
-三者都是 OpenAI 兼容接口，业务代码零改动。归纳质量在三档间无实质差异（见 E1/E10/E11），
-差别只在速度与成本。**"尽量本地部署"由 `gpu` / `cpu` 两档正面达成。**
+- 五平台当前榜单前5：25/25
+- 五平台创作者场景：12/12
+- 五平台搜索“人工智能”：10/10
+- 合计 47 条 GPU 结果，47/47 成功
 
----
+详细记录在 `docs/EXPERIMENTS.md`。
 
-## 安装
+## 1. 本机安装
+
+需要 Python 3.11+、Git 和 ffmpeg。
 
 ```bash
-# 采集侧（本机，浏览器平台需要）
-pip install -e ".[download]"
-python -m playwright install chromium
+git clone https://github.com/Jianbin-Zhao/pku-video-digest.git
+cd pku-video-digest
+python scripts/setup_local.py
+```
 
-# 理解侧（服务器或本机独立部署）额外装
+`setup_local.py` 会把测试过的 MediaCrawler 版本克隆到项目同级目录，并安装
+Playwright Chromium。项目不会修改 MediaCrawler 源码。
+
+安装完成后先检查环境：
+
+```bash
+python scripts/preflight.py --side collect
+```
+
+所有项目显示 `[OK]` 后再继续。
+
+### 配置 `.env`
+
+复制 `.env.example` 为 `.env`，按需要填写：
+
+```env
+DASHSCOPE_API_KEY=
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+VSPIDER_SSH_HOST=
+VSPIDER_SSH_PORT=22
+VSPIDER_SSH_USER=root
+VSPIDER_SSH_PASSWORD=
+```
+
+`.env`、浏览器 Cookie、视频、模型和数据库都已在 `.gitignore` 中排除。
+
+## 2. 登录平台
+
+四个浏览器平台共用持久化登录目录，通常只需扫一次：
+
+```bash
+python scripts/login.py dy ks wb xhs
+```
+
+B站榜单和搜索可以匿名访问，创作者空间接口建议单独登录：
+
+```bash
+python scripts/login_bili.py
+```
+
+Cookie 会写入本机 `.env`，不会打印到终端。
+
+## 3. GPU 理解端
+
+服务器安装理解依赖：
+
+```bash
 pip install -e ".[asr,ocr,serve]"
 ```
 
-系统依赖 **ffmpeg**（音频抽取与 B 站音视频合流必需，`ffmpeg`/`ffprobe` 需在 PATH）：
-Linux `apt install ffmpeg`；Windows 下载静态构建解压后把 bin 目录加入 PATH。
-
-ASR 模型首次一次性下载（约 900MB，放到 `VSPIDER_MODELS_ROOT` 指向的目录）：
+下载 ASR 模型：
 
 ```bash
-modelscope download --model iic/SenseVoiceSmall --local_dir <MODELS_ROOT>/SenseVoiceSmall
-modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch --local_dir <MODELS_ROOT>/fsmn-vad
+modelscope download --model iic/SenseVoiceSmall \
+  --local_dir /root/autodl-tmp/models/SenseVoiceSmall
+
+modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-pytorch \
+  --local_dir /root/autodl-tmp/models/fsmn-vad
 ```
 
-配置 `.env`（参考 `.env.example`）：`api` 档需 `DASHSCOPE_API_KEY`；
-模型目录用 `VSPIDER_MODELS_ROOT` 指定；远程执行/同步需 `VSPIDER_SSH_*`。
-
----
-
-## 最短可复现路径
-
-### A. B 站（服务器可直连，无需浏览器）
+本项目默认 GPU 档为 Qwen3-8B-AWQ + vLLM：
 
 ```bash
-# 场景一：B 站今日榜单前 5，本地 GPU 归纳
-vspider rank --platform bili --limit 5 --profile gpu --device cpu
-
-# 场景二：某 up 主今天发布的视频
-vspider creator --platform bili --id <mid> --today --profile gpu --device cpu
+bash scripts/vllm_restart.sh
+python scripts/preflight.py --side understand --profile gpu --device cuda:0
 ```
 
-### B. 抖音 / 快手 / 微博 / 小红书（混合部署：本机采集 + 服务器理解）
+24GB 显卡默认给 vLLM 使用 75% 显存，SenseVoice 同时使用 GPU；12GB 显卡默认
+给 vLLM 使用 85%，ASR 建议改成 `--device cpu`。
 
-这些平台的接口带 JS 签名且要登录态，机房 IP 易触发风控，因此**采集下载在本机做**
-（干净家庭 IP + 已登录），**内容理解在服务器算**。
+## 4. 榜单前5
+
+### B站直接运行
 
 ```bash
-# 1) 本机：登录（抖音需扫码，其余平台同理，登录态持久化在 .browser/）
-python scripts/login_douyin.py            # 抖音专用（只认真实身份 cookie）
-python scripts/login.py ks                # 其余平台通用
-
-# 2) 本机：采集并下载（场景一用 --limit；场景二用 --creator [--today]）
-python scripts/fetch_local.py wb --limit 3
-python scripts/fetch_local.py wb --creator <uid> --today --out-dir data/handoff/scene2/wb
-#   产物：data/handoff/<平台>/ 下若干 mp4 + items.json
-
-# 3) 把该目录同步到服务器
-python tools/remote.py put data/handoff/wb /root/autodl-tmp/data/handoff/wb
-
-# 4) 服务器：接手理解（--profile 选 gpu / cpu / api；--device cpu 走纯 CPU）
-python scripts/understand.py /root/autodl-tmp/data/handoff/wb --profile gpu --device cpu
+vspider rank \
+  --platform bili \
+  --limit 5 \
+  --profile gpu \
+  --device cuda:0
 ```
 
-### C. Web 界面（实时流水线 + 结果卡片墙 + 历史）
+默认跳过超过30分钟的视频，防止演示被超长视频拖住。需要严格保持原榜单第1～5名：
 
 ```bash
-# 服务器：先起归纳后端（二选一），再起 Web
-bash scripts/vllm_restart.sh     # gpu 档：vLLM + Qwen3-8B-AWQ（约 90s 就绪）
-bash scripts/cpu_serve.sh        # cpu 档：llama.cpp + Qwen2.5-3B-GGUF
-bash scripts/serve_web.sh 6006   # 起 FastAPI（0.0.0.0:6006）
-
-# 本机用 SSH 隧道访问，浏览器打开 http://127.0.0.1:6006
-ssh -p <port> -L 6006:127.0.0.1:6006 root@<host>
+vspider rank --platform bili --limit 5 --max-duration 0 \
+  --profile gpu --device cuda:0
 ```
 
-**本机（Windows，无显卡）也能跑 cpu 档**：装 CPU 版 llama-cpp-python，从
-ModelScope 下同款 GGUF，起在 8081（8080 常被系统服务占用）：
+验收时榜首视频长107分钟，完整流程可以跑通，但下载本身用了约11分钟。
 
-```powershell
-pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-pip install "llama-cpp-python[server]"
-python -c "from modelscope.hub.file_download import model_file_download; model_file_download(model_id='Qwen/Qwen2.5-3B-Instruct-GGUF', file_path='qwen2.5-3b-instruct-q4_k_m.gguf', local_dir=r'models\Qwen2.5-3B-Instruct-GGUF')"
-python -m llama_cpp.server --model models\Qwen2.5-3B-Instruct-GGUF\qwen2.5-3b-instruct-q4_k_m.gguf --model_alias local --host 127.0.0.1 --port 8081 --n_ctx 16384 --n_threads 8
-# .env 里加：VSPIDER_LLAMA_BASE_URL=http://127.0.0.1:8081/v1
-```
+### 抖音、快手、微博、小红书
 
-Web 支持三种模式：`rank`（B 站直连）、`creator`（B 站直连）、
-`understand`（对已同步到服务器的 handoff 目录做理解，覆盖四个浏览器平台）。
-运行结果自动入 SQLite，支持历史回看与**断点续跑**（`--resume` / 界面勾选，跳过已归纳的视频）。
-
----
-
-## 拓展能力（plus）
-
-### 场景三：跨平台关键词搜索
+这四个平台在本机采集更稳：家庭网络和真实浏览器登录态不容易触发机房 IP 风控。
 
 ```bash
-# 服务器直连（B 站）：搜索→下载→归纳→批次总览一条龙
-vspider search --keyword 人工智能 --platforms bili --limit 3 --profile gpu --device cpu
+python scripts/fetch_local.py xhs --limit 5 \
+  --out-dir data/handoff/rank_xhs
 
-# 多平台串行（重后端只加载一次，跨平台结果汇总后统一出一次总览）
-vspider search --keyword 演唱会 --platforms bili,wb,xhs --limit 3
+python tools/remote.py put data/handoff/rank_xhs \
+  /root/autodl-tmp/data/handoff/rank_xhs
 
-# 机房 IP 被 B 站风控时，走混合路：本机搜索下载 → 服务器理解
-python scripts/fetch_local.py bili --keyword 人工智能 --limit 5 --out-dir data/handoff/search_ai
-python tools/remote.py put data/handoff/search_ai /root/autodl-tmp/data/handoff/search_ai
-python scripts/understand.py /root/autodl-tmp/data/handoff/search_ai --profile gpu --device cpu --digest
+python scripts/understand.py \
+  /root/autodl-tmp/data/handoff/rank_xhs \
+  --profile gpu --device cuda:0 \
+  --digest --persist --report report.html
 ```
 
-### 批次总览 + 报告导出
+把 `xhs` 换成 `dy`、`ks` 或 `wb` 即可。
+
+## 5. 创作者今日视频
+
+B站：
 
 ```bash
-# rank / creator / search 默认整批完成后生成总览（关掉用 --no-digest）
-vspider rank --platform bili --limit 5 --fast --digest
+vspider creator --platform bili --id <mid> --today \
+  --max-duration 0 --profile gpu --device cuda:0
+```
 
-# 把任意历史运行导出成可分享报告（latest 取最近一次）
+浏览器平台：
+
+```bash
+python scripts/fetch_local.py wb \
+  --creator <用户ID> --today \
+  --out-dir data/handoff/creator_wb
+```
+
+如果作者当天没有投稿，会生成空的 `items.json` 并正常退出，不会把历史视频混进来。
+
+## 6. 关键词搜索
+
+B站可以一条命令跑完：
+
+```bash
+vspider search --keyword 人工智能 --platforms bili \
+  --limit 2 --profile gpu --device cuda:0
+```
+
+浏览器平台仍建议先在本机下载：
+
+```bash
+python scripts/fetch_local.py ks --keyword 人工智能 --limit 2
+python scripts/fetch_local.py dy --keyword 人工智能 --limit 2 --show-browser
+```
+
+抖音连续测试较多时，无头搜索可能只返回空列表；加 `--show-browser` 使用真实窗口更稳。
+
+## 7. Web 页面
+
+先启动 vLLM，再启动 Web：
+
+```bash
+bash scripts/vllm_restart.sh
+bash scripts/serve_web.sh 6006
+```
+
+本机通过 SSH 隧道访问：
+
+```bash
+ssh -p <SSH端口> -L 6006:127.0.0.1:6006 root@<服务器地址>
+```
+
+浏览器打开 `http://127.0.0.1:6006`。
+
+页面支持实时进度、结果卡片、整批总览和历史回看：
+
+![运行历史](docs/images/02_history.png)
+
+![历史详情](docs/images/03_history_detail.png)
+
+每次运行都可以导出自包含 HTML 或 Markdown：
+
+![HTML 报告](docs/images/04_report.png)
+
+命令行也能导出：
+
+```bash
 vspider report latest --format html -o report.html
 vspider report <run_id> --format md
 ```
 
-- `--fast`：转写字数 ≥200 时跳过抽帧与 OCR（信息已足够，省时间）；不足则仍走 OCR 兜底。
-- `understand.py` 也支持 `--digest / --fast / --persist / --report <path>`，混合路同样能出总览与报告。
+## 8. 三种归纳后端
 
----
+- `--profile api`：调用 DashScope，配置简单，适合调试
+- `--profile gpu`：vLLM + Qwen3-8B-AWQ，本地 GPU 归纳
+- `--profile cpu`：llama.cpp + Qwen2.5-3B-GGUF，无显卡也能运行
 
-## 五平台落地状态
+三种后端都使用 OpenAI 兼容接口，采集和处理代码不需要变化。
 
-| 平台 | 场景一 | 场景二 | 说明 |
-| --- | --- | --- | --- |
-| B 站 | ✅ | ✅ | 官方接口，服务器直连全链路 |
-| 微博 | ✅ | ✅ | 混合部署 |
-| 小红书 | ✅ | ✅ | 混合部署（详情接口流结构改版已适配） |
-| 快手 | ✅ | ⚠️ | 依赖 `__NS_hxfalcon` 签名；出口 IP 被限流时（`result:2`）需冷却重试 |
-| 抖音 | ✅ | ⚠️ | 搜索/榜单需登录态；作品列表接口有 Argus 强风控，非本项目逻辑问题 |
+## 9. 常用选项
 
-⚠️ 为平台侧反爬强度，非代码缺陷，文档如实标注（详见 E9/E11）。
+```text
+--fast             转写内容足够时跳过 OCR
+--digest           生成整批热点总览
+--resume           跳过 SQLite 中已经成功处理的视频
+--max-duration 0   不限制视频长度
+--show-browser     显示真实浏览器窗口
+--out result.json  保存结构化结果
+```
 
----
+断点续跑实测可在0.2秒内跳过已处理视频。
 
 ## 目录
 
-```
-vspider/            主工程
-  discovery/        五平台榜单/创作者发现（两级策略）
-  download/         直链下载 + B 站 yt-dlp
-  asr/ ocr/         SenseVoice / RapidOCR
-  fusion/           多源信息融合
-  summarize/        OpenAI 兼容归纳后端（api/gpu/cpu 通吃）
-  pipeline/         编排器 + 事件流 + 终端渲染
-  web/              FastAPI + SSE 前端
-  storage.py        SQLite 入库 + 断点续跑
-  registry.py       组件装配（平台×profile）
-  report.py         运行结果 → 自包含 HTML / Markdown 报告（plus）
-  summarize/digest.py  跨视频批次总览（plus）
-  cli.py            命令行入口（rank / creator / search / report）
-scripts/            登录、本机采集、服务器理解、起服务、各类探针
-tools/remote.py     SSH 执行 / 文件同步
-MediaCrawler/       只读库依赖（不改）
-docs/               DESIGN / EXPERIMENTS / PROGRESS
+```text
+vspider/
+  discovery/       五平台发现与字段统一
+  download/        yt-dlp 和直链下载
+  asr/ ocr/        SenseVoice、RapidOCR
+  pipeline/        并发编排、事件、重试
+  summarize/       单条归纳和批次总览
+  web/             FastAPI、SSE、前端
+
+scripts/           安装、登录、采集、理解和测试脚本
+tools/remote.py    SSH 执行与文件同步
+docs/              设计、实验和进度记录
 ```
 
-## 常用脚本
+## 已知限制
 
-| 脚本 | 作用 |
-| --- | --- |
-| `scripts/login.py` / `login_douyin.py` | 本机登录，持久化会话到 `.browser/` |
-| `scripts/fetch_local.py` | 本机采集下载（场景一 `--limit`；场景二 `--creator [--today]`；场景三 `--keyword`；已支持 B 站） |
-| `scripts/understand.py` | 服务器对 handoff 目录做理解（`--digest` 总览 / `--fast` / `--report` 导出报告） |
-| `scripts/vllm_restart.sh` | 起/重启 vLLM（gpu 档） |
-| `scripts/cpu_setup.sh` / `cpu_serve.sh` | 装/起 llama.cpp（cpu 档） |
-| `scripts/serve_web.sh` | 起 Web 界面 |
-| `tools/remote.py` | `run` 远程执行 / `put`·`get` 文件同步 |
+平台接口和风控会变化，登录过期时需要重新扫码。代码提供了重试、熔断和清晰的错误信息，
+但无法保证第三方平台永远不调整接口。
+
+如果榜单、搜索或创作者请求突然返回空结果，先运行：
+
+```bash
+python scripts/verify_all.py
+```
+
+确认是登录失效、平台限流还是实际没有内容，再决定是否重新登录。

@@ -1,8 +1,13 @@
-"""排查置信度分布：历史库里 confidence 是否真的全是同一个值。"""
+"""统计历史置信度。"""
 import sqlite3
 import sys
+from pathlib import Path
 
-db = sys.argv[1] if len(sys.argv) > 1 else r"D:\pku_exam_plus\data\vspider.db"
+db = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else Path(__file__).resolve().parent.parent / "data" / "vspider.db"
+)
 con = sqlite3.connect(db)
 
 print("== 置信度分布（成功的视频）==")

@@ -1,21 +1,4 @@
-"""流水线编排器。
-
-两个入口对应题面的两个验收场景：
-    run_ranking  今日榜单前 N 的视频，下载并归纳
-    run_creator  指定用户今天发布的视频，下载并归纳
-
-并发策略不是一刀切，而是按资源类型分别限流，因为各阶段的瓶颈完全不同：
-
-    下载    网络 I/O 密集      并行 3~4
-    抽音频  ffmpeg，CPU        并行 2~3
-    语音识别 GPU，且 funasr 的 generate 不可并发调用   全局串行
-    OCR     内部已线程池并行   视频级串行，避免线程数翻倍过度订阅
-    归纳    HTTP I/O           并行 3~5
-
-每条视频作为一个独立任务流过全部阶段，用信号量约束各阶段的实际并发度。
-这样界面上看到的是多条视频同时推进、逐条完成，而不是所有视频卡在同一阶段。
-单条视频失败被隔离，不影响其余视频。
-"""
+"""下载、ASR、OCR 和归纳流水线。"""
 
 from __future__ import annotations
 
@@ -47,27 +30,18 @@ class PipelineConfig:
     max_keyframe: int = 2
     max_summarize: int = 4
 
-    # 超过该时长的视频跳过。榜单里偶尔会出现几小时的直播回放，
-    # 单条就能把整批的耗时拖垮，而它对验证功能没有额外价值。
+    # 0 表示不限时。
     max_duration_sec: int = 1800
     keyframe_max: int = 24
 
-    # 置信度低于此值时触发按需升级（换更强模型 / 追加视觉模态）。
     escalate_below: float = 0.55
     enable_escalation: bool = False
 
-    # 断点续跑：这些 uid（platform:video_id）此前已成功归纳过，本次直接跳过，
-    # 不重复下载与推理。由上层从 SQLite 的 processed_uids() 填入。
     skip_uids: frozenset[str] = frozenset()
 
-    # 批次总览：整批视频归纳完后，再用 LLM 做一层跨视频聚合分析
-    #（热点主题聚类 / 趋势观察 / 优先观看推荐）。
     enable_digest: bool = False
 
-    # 快速模式：语音转写字数达到该阈值时跳过关键帧 + OCR。
-    # 依据实验 E4/E9：OCR 是理解链路里仅次于 ASR 的耗时大头（8~40s/条），
-    # 而转写已经很充分时，硬字幕对归纳质量的边际贡献很小（E3-a 的反面）。
-    # 0 表示关闭（默认，保证无人声视频仍有 OCR 兜底）。
+    # 转写达到阈值时跳过 OCR；0 表示关闭。
     skip_ocr_if_transcript_chars: int = 0
 
 
@@ -138,15 +112,12 @@ class Orchestrator:
         self._sem_audio = asyncio.Semaphore(self._config.max_audio)
         self._sem_keyframe = asyncio.Semaphore(self._config.max_keyframe)
         self._sem_summarize = asyncio.Semaphore(self._config.max_summarize)
-        # ASR 与 OCR 用锁而非信号量：前者是 GPU 独占且 funasr 不支持并发调用，
-        # 后者内部已有线程池，视频级再并发只会让线程数翻倍抢核。
+        # FunASR 不支持并发；OCR 内部已有线程池。
         self._lock_asr = asyncio.Lock()
         self._lock_ocr = asyncio.Lock()
 
     async def _emit(self, event: Event) -> None:
         await self._sink(event)
-
-    # ---------------- 场景入口 ----------------
 
     async def run_ranking(
         self,
@@ -166,7 +137,7 @@ class Orchestrator:
 
         stage_started = time.perf_counter()
         await self._emit(Event(EventKind.STAGE_START, stage=Stage.DISCOVER))
-        # 多取一些再筛，因为时长过滤会淘汰掉一部分（榜单里常混入长直播回放）。
+        # 多取一些，避免时长过滤后数量不足。
         raw = await self._provider.fetch_ranking(
             limit=limit * 3, category=category, today_only=today_only
         )
@@ -208,8 +179,7 @@ class Orchestrator:
 
         stage_started = time.perf_counter()
         await self._emit(Event(EventKind.STAGE_START, stage=Stage.DISCOVER))
-        # 搜索结果比榜单更容易混入超长课程/合集/直播回放，多取几倍再按时长筛，
-        # 否则热门关键词可能整批被时长上限滤光。
+        # 搜索结果常混入超长课程，扩大候选池后再筛。
         raw = await self._provider.search_videos(keyword, limit=limit * 6)
         kept, dropped = self._filter_by_duration(raw)
         items = kept[:limit]
@@ -348,8 +318,6 @@ class Orchestrator:
 
         return await self._process(items, scenario, started)
 
-    # ---------------- 内部 ----------------
-
     def _filter_by_duration(
         self, items: list[VideoItem]
     ) -> tuple[list[VideoItem], list[VideoItem]]:
@@ -359,10 +327,11 @@ class Orchestrator:
         直播回放是常事，用户看到结果从第 2 名开始必须知道第 1 名去哪了。
         """
         limit = self._config.max_duration_sec
+        if limit <= 0:
+            return list(items), []
         kept: list[VideoItem] = []
         dropped: list[VideoItem] = []
         for item in items:
-            # duration 为 0 表示平台没给时长，先放行，下载后再看。
             (kept if item.duration_sec <= limit else dropped).append(item)
         return kept, dropped
 
@@ -499,8 +468,7 @@ class Orchestrator:
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            # 单条视频失败必须隔离。榜单里总会有一两条因为地区限制、
-            # 会员专属或临时下架而拿不到，不能让它拖垮整批。
+            # 单条失败不影响整批。
             result.error = f"{type(exc).__name__}: {exc}"
             await self._emit(
                 Event(
@@ -561,8 +529,7 @@ class Orchestrator:
         video_path = result.video_path
 
         if not await has_audio_stream(video_path):
-            # 纯图文或纯 BGM 视频。跳过而不是报错——这正是 OCR 和视觉理解
-            # 存在的意义，后面的阶段照常推进。
+            # 无音轨时继续走 OCR。
             await self._emit(
                 Event(
                     EventKind.STAGE_SKIPPED,
@@ -599,7 +566,6 @@ class Orchestrator:
 
         transcript, elapsed = await self._timed(result, Stage.ASR, run_asr)
         result.transcript = transcript
-        # 榜单接口一般已给出时长，能省掉一次 ffprobe 子进程；拿不到再探测。
         duration = float(result.item.duration_sec) or await probe_duration(video_path)
         speed = duration / transcript.elapsed_sec if transcript.elapsed_sec else 0.0
         await self._emit(
@@ -626,13 +592,17 @@ class Orchestrator:
         video_path = result.video_path
         item = result.item
 
-        # 快速模式：转写已经足够充分时跳过整个视觉链路（抽帧 + OCR）。
-        # 无音轨或转写贫瘠的视频不受影响，仍走 OCR 兜底。
         threshold = self._config.skip_ocr_if_transcript_chars
+        title = (item.title or item.desc or "").strip()
+        weak_metadata = not title or title.startswith(
+            ("（无标题视频笔记", "无标题视频笔记")
+        )
+        # 无标题视频提高阈值，保留 OCR 兜底。
+        effective_threshold = threshold * 2 if weak_metadata else threshold
         if (
             threshold > 0
             and result.transcript is not None
-            and len(result.transcript.full_text) >= threshold
+            and len(result.transcript.full_text) >= effective_threshold
         ):
             await self._emit(
                 Event(
@@ -641,7 +611,7 @@ class Orchestrator:
                     video_uid=item.uid,
                     message=(
                         f"快速模式：转写已有 {len(result.transcript.full_text)} 字"
-                        f"（≥{threshold}），跳过抽帧与画面识别"
+                        f"（≥{effective_threshold}），跳过抽帧与画面识别"
                     ),
                 )
             )
@@ -708,9 +678,7 @@ class Orchestrator:
             if not should_escalate:
                 return summary
 
-            # 按需升级：只在模型自评把握不足时才花更贵的算力重做一次。
-            # 放在计时块内部，这样报告里的归纳耗时包含了重做的代价，
-            # 否则升级看起来是免费的。
+            # 低置信度时重做一次。
             await self._emit(
                 Event(
                     EventKind.LOG,
@@ -725,7 +693,6 @@ class Orchestrator:
             assert self._escalated is not None
             async with self._sem_summarize:
                 upgraded = await self._escalated.summarize(context)
-            # 只有升级后自评不降才采纳，避免更贵的一次反而拉低质量。
             if upgraded.confidence >= summary.confidence:
                 result.escalated = True
                 return upgraded

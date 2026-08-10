@@ -1,15 +1,4 @@
-"""直链下载后端，用于抖音 / 快手 / 微博 / 小红书。
-
-这四个平台不走 yt-dlp，理由是**直链已经在手里了**：
-采集阶段拿到的原始数据里就带着视频地址（抖音的 play_addr、快手的 photoUrls、
-微博的 media_info、小红书的 origin_video_key），再让 yt-dlp 去解析一遍
-等于重复请求一次页面，既慢又多一个失效点——yt-dlp 对抖音和快手的
-extractor 本来就经常跟不上平台改版。
-
-真正的难点不是找地址，而是**带对请求头**。这些 CDN 都会校验 Referer，
-少了就返回 403；抖音还要求带上会话 cookie。所以这个后端必须能拿到
-浏览器会话里的 cookie 和 UA，而不是自己造一份。
-"""
+"""浏览器平台直链下载后端。"""
 
 from __future__ import annotations
 
@@ -30,7 +19,6 @@ from vspider.download.base import (
 )
 from vspider.models import Platform, VideoItem
 
-# 各平台 CDN 校验的 Referer。填错或不填一律 403。
 _REFERERS: dict[Platform, str] = {
     Platform.DOUYIN: "https://www.douyin.com/",
     Platform.KUAISHOU: "https://www.kuaishou.com/",

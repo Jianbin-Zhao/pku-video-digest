@@ -1,16 +1,4 @@
-"""组件装配。
-
-把「按平台选采集器/下载器」和「按部署形态选推理后端」这两件事集中到一处，
-CLI 与 Web 后端共用同一套装配逻辑，避免两边配置漂移。
-
-三种部署形态（profile）对应老师「尽量本地部署」这个要求的三个档位：
-
-    api    阿里云百炼。最快、零显存占用，用于开发调试和演示
-    gpu    服务器上的 vLLM 起 Qwen3-8B。完全本地，无外部依赖
-    cpu    本地 llama.cpp 的 llama-server 起量化模型。无显卡也能跑
-
-三者都提供 OpenAI 兼容接口，所以业务代码一行都不用改。
-"""
+"""按平台和部署档位装配组件。"""
 
 from __future__ import annotations
 
@@ -60,7 +48,6 @@ class Paths:
 
     @classmethod
     def from_env(cls) -> Paths:
-        # 服务器上模型和数据都放数据盘，系统盘只有 30G 放不下。
         return cls(
             models_root=Path(
                 os.environ.get("VSPIDER_MODELS_ROOT", "/root/autodl-tmp/models")
@@ -71,9 +58,6 @@ class Paths:
         )
 
 
-# 每档的默认模型。api 档默认用 qwen-flash 而不是更强的 qwen3.8-max，
-# 依据是实验 E1：归纳质量的瓶颈在输入是否完整，而不在模型大小，
-# 补上 OCR 带来的提升远大于换更贵的模型。详见 docs/EXPERIMENTS.md。
 _LLM_PROFILES: dict[str, dict[str, str]] = {
     "api": {
         "base_url_env": "DASHSCOPE_BASE_URL",
@@ -94,12 +78,8 @@ _LLM_PROFILES: dict[str, dict[str, str]] = {
     },
 }
 
-# 升级档用的模型。只在低置信度时触发，所以可以放心用贵的。
 ESCALATION_MODEL = os.environ.get("VSPIDER_ESCALATION_MODEL", "qwen-plus")
 
-
-# 需要浏览器会话才能工作的平台。它们的接口都带 JS 签名，
-# 且实测均要求登录态，绕不开真实浏览器。
 BROWSER_PLATFORMS = frozenset(
     {Platform.DOUYIN, Platform.KUAISHOU, Platform.WEIBO, Platform.XHS}
 )
@@ -206,12 +186,9 @@ def build_summarizer(
         base_url = require(spec["base_url_env"])
         api_key = require(spec["api_key_env"])
     else:
-        # 本地后端不需要密钥，地址也允许缺省到约定端口。
         base_url = os.environ.get(spec["base_url_env"]) or spec["fallback_base_url"]
         api_key = ""
 
-    # 关思考模式的传参方式随后端而异：DashScope 用顶层字段，vLLM 用
-    # chat_template_kwargs（gpu），llama.cpp 两者都不认则不传（cpu）。
     thinking_via = {"api": "field", "gpu": "template", "cpu": "none"}[profile]
 
     return OpenAICompatSummarizer(

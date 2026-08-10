@@ -1,19 +1,4 @@
-"""关键帧抽取。
-
-短视频的画面信息高度冗余：一个镜头里连续几十帧内容几乎相同，
-逐帧 OCR 既慢又会产出大量重复文本。因此要抽帧。
-
-三种策略，默认走 iframe（依据见 docs/EXPERIMENTS.md E8）：
-
-  iframe    只解码 I 帧。编码器本来就会在镜头切变处插入 I 帧，
-            所以这等于近乎免费地拿到了场景对齐的采样点
-  scene     用 scene 滤镜按画面变化程度筛选。语义上最准，
-            但要把整条视频完整解码一遍，开销随时长线性增长
-  interval  按固定间隔均匀采样。兜底用，也是长镜头讲解类视频的唯一可行解
-
-无论走哪条，帧数不足时都会退化到 interval：
-一个十分钟的单镜头视频若只抽到一帧，硬字幕就全漏了。
-"""
+"""I帧、场景变化和固定间隔抽帧。"""
 
 from __future__ import annotations
 
@@ -29,8 +14,6 @@ from vspider.media.audio import (
     probe_duration,
 )
 
-# 并发抽帧数。每次抽帧是一个独立的 ffmpeg 进程，且都是关键帧定位，
-# 单次开销很小，主要成本在进程启动上，所以开到 6 收益就基本饱和了。
 _EXTRACT_CONCURRENCY = 6
 
 
@@ -68,7 +51,7 @@ async def extract_keyframes(
 
     if strategy == "iframe":
         timestamps = await _probe_iframe_times(video_path)
-        # I 帧可能有几百个，均匀取 max_frames 个，覆盖整条视频而不是只取开头。
+        # 均匀覆盖整条视频。
         frames = await _extract_at_times(
             video_path, dest_dir, _spread(timestamps, max_frames), width
         )
@@ -82,8 +65,7 @@ async def extract_keyframes(
         raise ValueError(f"未知抽帧策略 {strategy!r}，可选 iframe / scene / interval")
 
     if len(frames) < min_frames and duration > 0:
-        # 帧数不足，改成均匀采样。目标帧数取 min_frames 与 max_frames 之间，
-        # 按时长决定：越长的视频多抽几帧。
+        # 帧数不足时改用均匀采样。
         _clear(dest_dir)
         target = max(min_frames, min(max_frames, int(duration // 10) + min_frames))
         frames = await _extract_at_times(
@@ -107,8 +89,7 @@ def _spread(values: list[float], count: int) -> list[float]:
 
 
 def _interval_times(duration: float, target: int) -> list[float]:
-    # 跳过首尾各 2%：短视频开头常是黑场或平台水印，结尾常是关注引导，
-    # 都不含内容信息。
+    # 跳过常见的片头和关注引导。
     span_start = duration * 0.02
     span_end = duration * 0.98
     step = max((span_end - span_start) / target, 0.5)
@@ -173,8 +154,7 @@ async def _extract_at_times(
     async def one(index: int, timestamp: float) -> Keyframe | None:
         path = dest_dir / f"frame_{index:03d}.jpg"
         async with semaphore:
-            # -ss 放在 -i 之前是关键：这样 ffmpeg 直接 seek 到目标位置，
-            # 放在后面会从头解码到该位置，长视频上慢几个数量级。
+            # 输入前 seek，避免从头解码。
             try:
                 await _run_ffmpeg(
                     [
@@ -197,24 +177,18 @@ async def _extract_at_times(
                     ]
                 )
             except FFmpegError:
-                # 单个时间点抽失败（多见于末尾越界）不该让整条视频失败，
-                # 少一帧对 OCR 的影响可以忽略。
+                # 单帧失败不影响整条视频。
                 return None
         return Keyframe(timestamp=timestamp, path=path) if path.exists() else None
 
     results = await asyncio.gather(
         *(one(index, ts) for index, ts in enumerate(timestamps, start=1))
     )
-    # 就地构造而不是回头扫目录：抽帧可能有个别失败，
-    # 靠文件名顺序和时间戳列表对位的话，缺一个后面就全错位了。
     return [frame for frame in results if frame is not None]
 
 
 async def _run_ffmpeg(args: list[str]) -> str:
-    """执行 ffmpeg 并返回 stderr 文本。
-
-    返回 stderr 是因为 showinfo 滤镜的逐帧信息（含时间戳）写在这里。
-    """
+    """执行 ffmpeg 并返回 stderr。"""
     process = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.DEVNULL,
@@ -236,11 +210,7 @@ async def _extract_by_scene(
     max_frames: int,
     width: int,
 ) -> list[Keyframe]:
-    # 两个容易踩的点：
-    # -vsync vfr 配合 select 滤镜才能只输出被选中的帧，缺了它 ffmpeg 会按
-    #   固定帧率补帧，产出大量重复图片；
-    # -loglevel info 是必需的，showinfo 的逐帧时间戳写在 info 级别的 stderr 里，
-    #   降到 error 就拿不到时间轴了。
+    # showinfo 时间戳位于 info 级别 stderr。
     stderr = await _run_ffmpeg(
         [
             ffmpeg_path(),
@@ -276,8 +246,6 @@ def _collect(dest_dir: Path, timestamps: list[float]) -> list[Keyframe]:
     paths = sorted(dest_dir.glob("frame_*.jpg"))
     return [
         Keyframe(
-            # 时间戳数量理论上与图片一一对应，但 ffmpeg 在末尾截断时
-            # 两者可能差一个，取不到就退化为 0 而不是让整条流水线崩掉。
             timestamp=timestamps[index] if index < len(timestamps) else 0.0,
             path=path,
         )

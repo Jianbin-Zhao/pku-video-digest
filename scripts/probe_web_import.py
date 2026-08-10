@@ -1,4 +1,9 @@
-"""导入自检:确认 web 服务模块可加载、路由已注册。"""
+"""检查 Web 路由。"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import vspider.web.server as s
 
 print("import ok, routes:", len(s.app.routes))

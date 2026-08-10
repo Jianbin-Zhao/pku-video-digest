@@ -1,17 +1,4 @@
-"""SenseVoice-Small 语音识别后端。
-
-选它的依据是 FunASR 官方在 184 条中文长音频（共 192 分钟）上的实测：
-SenseVoice-Small 在 CPU 上 17.2 倍实时、中文 CER 7.81%，
-而 Whisper-large-v3 在 H100 上只有 13.4 倍实时、CER 20.02%。
-换句话说这个模型跑在 CPU 上就比 Whisper 跑在顶级 GPU 上又快又准，
-原因是它是非自回归结构（一次前向出全部结果），且专门针对中文训练。
-
-实现上刻意分两步走：先用 FSMN-VAD 拿到语音段边界，再逐段识别。
-比直接把整个文件丢给模型多写几十行，但换来两个必需的东西：
-一是带时间戳的分段（界面上点文稿跳转到视频位置要用），
-二是可控的显存占用（SenseVoice 单次前向的开销随音频时长线性增长，
-整段丢一个一小时的视频进去会直接 OOM）。
-"""
+"""SenseVoice-Small + FSMN-VAD 语音识别。"""
 
 from __future__ import annotations
 
@@ -23,7 +10,6 @@ from typing import Any
 from vspider.asr.base import AsrBackend
 from vspider.models import Transcript, TranscriptSegment
 
-# 单段上限 30 秒。太长会顶高峰值显存，太短会切碎语义、拉低识别率。
 _MAX_SEGMENT_MS = 30_000
 _SAMPLE_RATE = 16_000
 

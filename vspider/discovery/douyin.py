@@ -1,18 +1,4 @@
-"""抖音榜单发现。
-
-抖音没有「视频排行榜」这种接口，只有**热点榜**（热搜词）。
-所以这里用两级策略，产出的每条都会标注实际走的是哪一级：
-
-  一级 热点榜带样例视频
-       /aweme/v1/web/hot/search/list/ 带 detail_list=1 时，
-       每个热词会附带平台自己挑的代表作品。这是最接近「官方榜单」的东西。
-  二级 热词搜索重排
-       取热词逐个搜索，把结果按互动量重新排序。
-       热榜接口失效或返回的样例视频不足时兜底。
-
-签名交给 MediaCrawler 的客户端：它的 get() 会自动补 msToken 和 a_bogus，
-所以这里可以直接调用任何抖音 web 接口，包括 MediaCrawler 自己没封装的热榜。
-"""
+"""抖音热点榜、搜索和创作者数据。"""
 
 from __future__ import annotations
 
@@ -31,8 +17,6 @@ from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
 
 _HOT_LIST_URI = "/aweme/v1/web/hot/search/list/"
-# 二级策略下每个热词搜一页就够。热词本身已经是排序过的，
-# 与其在单个词里翻深，不如多覆盖几个词。
 _SEARCH_KEYWORDS_LIMIT = 6
 
 _LOG = logging.getLogger(__name__)

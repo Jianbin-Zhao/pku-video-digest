@@ -1,9 +1,4 @@
-"""基于 yt-dlp 的下载后端，用于 B 站 / 微博 / 小红书。
-
-以子进程方式调用 yt-dlp 而非 import 其 Python API，原因有两点：
-yt-dlp 的内部接口在版本间并不稳定，而 CLI 参数向来向后兼容；
-且子进程天然隔离，单条视频解析失败不会污染主进程状态。
-"""
+"""yt-dlp 下载后端。"""
 
 from __future__ import annotations
 
@@ -21,20 +16,7 @@ from vspider.download.base import (
 )
 from vspider.models import Platform, VideoItem
 
-# 720p 是刻意设的上限：更高清晰度对语音识别毫无帮助，对关键帧 OCR 的
-# 识别率提升也很有限，但体积和下载时间会成倍增长。
-#
-# 不限定视频编码，让 yt-dlp 挑体积最优的（B 站上通常是 AV1）。
-#
-# 曾经改成优先 H.264，理由是 AV1 软解慢得多（同一条 632 秒视频整片解码
-# 要 22.97 秒，H.264 只要 5.95 秒）。单条 A/B 测下载耗时几乎不变，看着是白拿。
-#
-# 但批量实测推翻了这个结论：H.264 体积大 61%，五条视频三路并发下载时
-# 累计耗时从 49.19s 涨到 80.07s，而抽帧只省下约 4 秒。单条测不出来是因为
-# 那时没有并发争抢带宽。
-#
-# 根本原因是 iframe 抽帧策略只解复用、不解码，主路径本来就不吃编码格式，
-# 所以「解码快」这个好处在这条流水线上兑现不了。详见 docs/EXPERIMENTS.md E8。
+# 720p 足够用于 ASR 和 OCR。
 _VIDEO_FORMAT = "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"
 _AUDIO_FORMAT = "ba/bestaudio/b"
 

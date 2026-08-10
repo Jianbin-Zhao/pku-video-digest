@@ -1,18 +1,4 @@
-"""快手榜单发现。
-
-快手同样没有「视频排行榜」接口，所以直接走二级策略：
-用一批热门话题词搜索，再按互动量重排，结果如实标注 hot_keyword_rerank，
-不把它伪装成官方榜单。
-
-这里必须用 **V2 签名接口**而不是旧的 GraphQL 接口。快手已经把
-搜索和作品列表迁到了 /rest/v/ 下，且要求 __NS_hxfalcon 签名，
-不签名的请求一律返回 result:50、feeds 为空——而且不报错，
-表现得就像「搜不到内容」，很容易被误判成关键词问题。
-
-签名依赖页面里注入的捕获脚本，见 session.py 中快手的 init_scripts 配置。
-
-快手的搜索结果自带 photoUrl 直链，下载环节可以省掉一次详情请求。
-"""
+"""快手搜索、榜单和创作者数据。"""
 
 from __future__ import annotations
 
@@ -25,8 +11,6 @@ from vspider.discovery.keyword_rerank import KeywordRejected, collect_by_keyword
 from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
 
-# 快手没有热搜词接口可用，这里用一组覆盖面较宽的常驻热门话题作为种子。
-# 选词原则是尽量分散到不同内容生态，避免整个榜单被单一品类占满。
 _SEED_KEYWORDS = (
     "热门",
     "搞笑",

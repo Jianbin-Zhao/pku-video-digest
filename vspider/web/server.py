@@ -1,16 +1,4 @@
-"""FastAPI 后端。
-
-三种运行模式，都复用 CLI 那套 orchestrator：
-    rank        今日榜单前 N（B 站可服务器直连；浏览器平台需先本机采集）
-    creator     指定创作者作品
-    understand  对本机采集好的 handoff 目录做内容理解（混合部署后半段）
-
-事件通过 SSE（text/event-stream）实时推给前端。为了让「中途打开页面」的客户端
-也能看到完整过程，每个 run 维护一个事件重放缓冲，SSE 连接先补发历史再续推增量。
-
-重后端（SenseVoice / RapidOCR）按设备缓存，避免每次运行都重载模型。
-归纳后端是轻量 HTTP 客户端，按 (profile, model) 缓存。
-"""
+"""FastAPI Web 与 SSE 接口。"""
 
 from __future__ import annotations
 
@@ -70,9 +58,6 @@ class _NoDiscovery:
         return []
 
 
-# ---------------- 请求体 ----------------
-
-
 class RunRequest(BaseModel):
     mode: str = "rank"  # rank | creator | search | understand
     platform: str = "bili"
@@ -89,9 +74,6 @@ class RunRequest(BaseModel):
     resume: bool = False  # 断点续跑:跳过 SQLite 里已成功归纳过的视频
     fast: bool = False  # 快速模式:转写充分时跳过抽帧与 OCR
     digest: bool = True  # 整批完成后生成跨视频总览
-
-
-# ---------------- 运行状态 ----------------
 
 
 @dataclass
@@ -190,8 +172,7 @@ class RunManager:
                         limit=req.limit, category=req.category, today_only=req.today
                     )
             finally:
-                # shared=False：ASR/OCR/归纳器由 ComponentCache 跨 run 复用，
-                # 只关本次运行独立创建的采集器与下载器。
+                # 重后端由缓存复用。
                 await orchestrator.aclose(shared=False)
                 if closer is not None:
                     await closer()
@@ -245,14 +226,11 @@ class RunManager:
                 None,
             )
 
-        # rank / creator：B 站直连，浏览器平台需要活的会话。
         session = None
         closer = None
         if platform in BROWSER_PLATFORMS:
             from vspider.mediacrawler.session import MediaCrawlerSession
 
-            # 快手等平台对无头浏览器有额外风控（签名环境不注入），
-            # 本机部署时设 VSPIDER_WEB_HEADED=1 用有头浏览器跑，成功率高得多。
             headed = os.environ.get("VSPIDER_WEB_HEADED", "") == "1"
             sess = MediaCrawlerSession(headless=not headed)
             session = await sess.__aenter__()
@@ -316,21 +294,14 @@ def _video_to_dict(r: VideoResult) -> dict[str, Any]:
     }
 
 
-# ---------------- FastAPI 应用 ----------------
-
-
 def create_app() -> FastAPI:
     load_env()
     app = FastAPI(title="vspider", docs_url="/docs")
     storage = Storage()
     manager = RunManager(storage)
 
-    # 浏览器平台能否从 Web 端直接发起：本机部署（有登录态 + 家庭 IP）设
-    # VSPIDER_WEB_BROWSER=1 放开；服务器部署保持默认拦截并指路混合流程。
     allow_browser = os.environ.get("VSPIDER_WEB_BROWSER", "") == "1"
 
-    # gpu/cpu 档依赖本地推理服务。提交前先探测一次，选错档位（比如在没起
-    # vLLM 的本机选 gpu）就当场给可读提示，而不是整批跑到归纳那步才 ConnectError。
     _LOCAL_LLM = {
         "gpu": ("VSPIDER_VLLM_BASE_URL", "http://127.0.0.1:8000/v1", "vLLM"),
         "cpu": ("VSPIDER_LLAMA_BASE_URL", "http://127.0.0.1:8080/v1", "llama.cpp"),
@@ -356,8 +327,6 @@ def create_app() -> FastAPI:
                     f"{type(exc).__name__}）。{hint}"
                 ),
             ) from exc
-        # 端口可能被别的程序占用（比如本机 8080 常见有打印服务），
-        # 能连通不代表是模型服务：必须返回 200 且是 JSON 才放行。
         ok = resp.status_code == 200 and resp.headers.get(
             "content-type", ""
         ).startswith("application/json")
@@ -380,8 +349,6 @@ def create_app() -> FastAPI:
             and platform in BROWSER_PLATFORMS
             and not allow_browser
         ):
-            # 浏览器平台在服务器上没有干净 IP + 登录态，直连必失败。
-            # 明确拦下并指路到本机采集 + understand 的混合流程。
             raise HTTPException(
                 400,
                 detail=(

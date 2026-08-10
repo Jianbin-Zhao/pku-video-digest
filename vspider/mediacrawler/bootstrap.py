@@ -1,10 +1,4 @@
-"""把 MediaCrawler 挂到 import 路径上，并压掉它的全局副作用。
-
-MediaCrawler 是按「独立命令行程序」写的，不是按库写的：
-它的模块从仓库根目录做绝对导入（`import config`、`from tools import utils`），
-且 import 时就会初始化日志、读配置。所以直接 import 之前要先做两件事——
-把仓库根加进 sys.path，以及把那些会干扰宿主程序的全局行为按住。
-"""
+"""加载 MediaCrawler 并处理其路径依赖。"""
 
 from __future__ import annotations
 
@@ -18,10 +12,7 @@ from pathlib import Path
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3] / "MediaCrawler"
 _initialized = False
 
-# 这些模块在 import 或构造时会用相对路径读文件，必须在仓库根目录下才能成功。
 _CWD_SENSITIVE_MODULES = (
-    # douyin/help.py 顶层就执行 execjs.compile(open('libs/douyin.js'))，
-    # 也就是说 import 这一刻就要求 cwd 正确，晚一步都来不及。
     "media_platform.douyin.help",
     "media_platform.douyin.client",
     "media_platform.kuaishou.client",

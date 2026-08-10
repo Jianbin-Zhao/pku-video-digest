@@ -28,7 +28,7 @@ from vspider.discovery.keyword_rerank import (
 from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
 
-# 小红书没有热搜接口，用一组高流量话题作为种子，尽量覆盖不同内容生态。
+# 小红书没有公开热搜接口，使用固定种子词。
 _SEED_KEYWORDS = (
     "热门",
     "vlog",
@@ -59,8 +59,7 @@ class XhsRankingProvider(RankingProvider):
 
         async def search(keyword: str) -> list[dict[str, Any]]:
             payload = await client.get_note_by_keyword(keyword=keyword)
-            # 小红书未登录/风控时会返回 success=false 或直接空列表而不报错。
-            # 能区分就明确拒绝，触发熔断。
+            # 空列表可能是静默风控。
             if payload and payload.get("success") is False:
                 raise KeywordRejected(payload.get("msg", "success=false"))
             return list((payload or {}).get("items") or [])
@@ -71,7 +70,6 @@ class XhsRankingProvider(RankingProvider):
             parse=_parse_note,
             limit=limit,
             platform_name="小红书",
-            # 小红书频控偏严，词间隔比默认宽一点。
             budget=KeywordBudget(delay_sec=1.5),
         )
 
@@ -176,20 +174,26 @@ def _parse_note(node: dict[str, Any]) -> VideoItem | None:
     if not note_id:
         return None
 
-    # 只要视频笔记。图文笔记后面没法做语音转写和抽帧，留着只会白跑一趟。
+    # 只处理视频笔记。
     if note.get("type") != "video":
         return None
 
     user = note.get("user") or {}
     interact = note.get("interact_info") or {}
-    # xsec_token 丢了这条笔记就再也打不开，所以从内外两层都找一遍。
     xsec_token = node.get("xsec_token") or note.get("xsec_token") or ""
 
     published = note.get("time") or note.get("create_time")
     publish_time = None
     if isinstance(published, (int, float)) and published > 0:
-        # 小红书用毫秒时间戳。
         publish_time = datetime.fromtimestamp(published / 1000)
+    elif len(note_id) >= 8:
+        # 创作者列表缺 time 时从 note_id 解析 Unix 秒。
+        try:
+            note_timestamp = int(note_id[:8], 16)
+            if 1_500_000_000 <= note_timestamp <= 4_102_444_800:
+                publish_time = datetime.fromtimestamp(note_timestamp)
+        except ValueError:
+            pass
 
     video = note.get("video") or {}
     capa = video.get("capa") or {}
@@ -197,9 +201,7 @@ def _parse_note(node: dict[str, Any]) -> VideoItem | None:
     title = (note.get("display_title") or note.get("title") or "").strip()
     desc = (note.get("desc") or "").strip()
     if not title and not desc:
-        # 小红书的搜索结果里 display_title 和 desc 都可能为空——
-        # 正文只在详情接口里才有。留空会让后面的归纳完全没有文字线索，
-        # 所以退回话题标签，至少给出内容方向。
+        # 搜索结果可能没有标题，退回话题标签。
         topics = [
             tag.get("name", "")
             for tag in (note.get("tag_list") or [])
@@ -310,5 +312,4 @@ def _parse_count(value: Any) -> int:
 def _extract_user_id(creator_id: str) -> str:
     if not creator_id.startswith("http"):
         return creator_id
-    # 主页链接形如 https://www.xiaohongshu.com/user/profile/5xxxxxx
     return creator_id.rstrip("/").split("/")[-1].split("?")[0]

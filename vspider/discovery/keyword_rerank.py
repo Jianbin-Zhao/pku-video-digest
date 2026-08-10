@@ -1,17 +1,4 @@
-"""热词重排的公共实现。
-
-抖音、快手、小红书都没有官方视频榜单，只能「拿一批词去搜，再按互动量重排」。
-三家的循环骨架完全一样，差别只在怎么发请求和怎么解析，
-所以把骨架抽到这里，各平台只提供两个回调。
-
-抽出来的直接动因是一次真实事故：三份各写一遍的循环里都有同一个缺陷——
-**失败时会把所有种子词打完**。搜索成功时第一个词就能凑够候选并跳出，
-可一旦被平台拒绝，计数永远到不了阈值，于是六个词全打一遍。
-被限流的时候还继续加压，等于自己把频控踩得更深；
-快手叠上签名请求的三次指数退避，单个平台能跑到 200 多秒。
-
-所以这里的核心不是复用代码，而是那个熔断器：连续失败到阈值就立刻收手。
-"""
+"""热词搜索、互动量重排和熔断。"""
 
 from __future__ import annotations
 
@@ -25,17 +12,11 @@ from vspider.models import VideoItem
 
 _LOG = logging.getLogger(__name__)
 
-# 搜索一页通常返回 10~20 条，取前 5 名只需要一次成功请求。
-# 候选攒到目标条数的三倍就够重排了，再多只是徒增请求。
 _CANDIDATE_MULTIPLIER = 3
 
 
 def _unwrap_error(exc: BaseException) -> str:
-    """展开 tenacity.RetryError，拿到底层真正的平台报错。
-
-    否则日志里只有 "RetryError[<Future ...>]"，
-    看不到"账号没有权限访问"这类关键信息。
-    """
+    """提取 tenacity 包装的原始错误。"""
     last_attempt = getattr(exc, "last_attempt", None)
     if last_attempt is not None and last_attempt.exception() is not None:
         exc = last_attempt.exception()
@@ -47,7 +28,7 @@ def _unwrap_error(exc: BaseException) -> str:
 
 @dataclass
 class KeywordBudget:
-    """限制一次采集能花多少次请求，以及失败到什么程度就收手。"""
+    """单次采集的请求预算。"""
 
     max_keywords: int = 6
     # 连续失败这么多次就停。设 2 而不是 1，是为了容忍单次网络抖动；
