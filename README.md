@@ -237,6 +237,9 @@ vspider report <run_id> --format md
 - `--profile gpu`：vLLM + Qwen3-8B-AWQ，本地 GPU 归纳
 - `--profile cpu`：llama.cpp + Qwen2.5-3B-GGUF，无显卡也能运行
 
+CLI、Web 和服务器侧 `understand.py` 默认优先使用 `gpu` 档；没有 vLLM 时再显式指定
+`--profile api` 或 `--profile cpu`。这样默认流程不依赖外部大模型服务。
+
 三种后端都使用 OpenAI 兼容接口，采集和处理代码不需要变化。
 
 ## 9. 常用选项
@@ -249,6 +252,9 @@ vspider report <run_id> --format md
 --show-browser     显示真实浏览器窗口
 --out result.json  保存结构化结果
 ```
+
+`fetch_local.py` 默认对单条下载做 2 次独立尝试；重复使用同一 `--out-dir` 时，
+已经下载成功的视频会直接命中缓存。可用 `--download-attempts` 调整次数。
 
 断点续跑实测可在0.2秒内跳过已处理视频。
 

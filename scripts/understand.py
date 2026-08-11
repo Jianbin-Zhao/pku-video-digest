@@ -46,7 +46,7 @@ class _NoDiscovery:
 async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("handoff_dir", help="fetch_local.py 导出的目录")
-    parser.add_argument("--profile", default="api")
+    parser.add_argument("--profile", default="gpu")
     parser.add_argument("--model", default="")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--out", default="")
@@ -83,8 +83,11 @@ async def main() -> int:
         prefetched.append((VideoItem.model_validate(record), path))
 
     if not prefetched:
-        print("没有可理解的文件。")
-        return 1
+        if records:
+            print("没有可理解的文件：清单里有记录，但本地视频文件缺失。")
+            return 1
+        print("清单为空：没有当天可处理的视频，按正常空结果退出。")
+        return 0
 
     print(f"载入 {len(prefetched)} 个文件，开始内容理解\n")
 

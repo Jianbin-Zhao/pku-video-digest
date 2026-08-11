@@ -115,7 +115,7 @@ def main(side: str, profile: str, device: str) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--side", choices=("collect", "understand"), required=True)
-    parser.add_argument("--profile", choices=("api", "gpu", "cpu"), default="api")
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--profile", choices=("api", "gpu", "cpu"), default="gpu")
+    parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
     raise SystemExit(main(args.side, args.profile, args.device))

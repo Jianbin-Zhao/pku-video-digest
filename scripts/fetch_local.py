@@ -12,7 +12,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vspider.download.base import DownloadMode  # noqa: E402
+from vspider.download.base import (  # noqa: E402
+    DownloadMode,
+    DownloadResult,
+    Downloader,
+)
 from vspider.mediacrawler.session import MediaCrawlerSession  # noqa: E402
 from vspider.models import Platform, VideoItem  # noqa: E402
 from vspider.registry import (  # noqa: E402
@@ -37,6 +41,29 @@ async def _discover(provider: object, args: argparse.Namespace) -> list[VideoIte
     return await provider.fetch_ranking(limit=args.limit, today_only=args.today)
 
 
+async def _download_with_retry(
+    downloader: Downloader,
+    item: VideoItem,
+    out_dir: Path,
+    attempts: int,
+) -> DownloadResult:
+    last_error: Exception | None = None
+    attempt_limit = max(1, attempts)
+    for attempt in range(1, attempt_limit + 1):
+        try:
+            return await downloader.download(item, out_dir, DownloadMode.VIDEO)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt < attempt_limit:
+                print(
+                    f"  {item.video_id} 第 {attempt} 次下载失败，"
+                    f"{type(exc).__name__}，准备重试"
+                )
+                await asyncio.sleep(1.5 * attempt)
+    assert last_error is not None
+    raise last_error
+
+
 async def _run(
     platform: Platform, session: object | None, out_dir: Path, args: argparse.Namespace
 ) -> int:
@@ -56,7 +83,9 @@ async def _run(
     exported: list[dict] = []
     for item in items:
         try:
-            result = await downloader.download(item, out_dir, DownloadMode.VIDEO)
+            result = await _download_with_retry(
+                downloader, item, out_dir, args.download_attempts
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"  {item.video_id} 下载失败：{type(exc).__name__}: {str(exc)[:120]}")
             continue
@@ -71,7 +100,9 @@ async def _run(
     manifest.write_text(
         json.dumps(exported, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\n导出 {len(exported)} 条到 {out_dir}")
+    print(f"\n导出 {len(exported)}/{len(items)} 条到 {out_dir}")
+    if len(exported) < len(items):
+        print("存在下载失败的视频；可直接重跑同一命令，已成功文件会命中缓存。")
     print(f"清单：{manifest}")
     print("\n下一步：把这个目录传到服务器，再跑")
     print("  python scripts/understand.py <服务器上该目录路径> --digest")
@@ -84,6 +115,12 @@ async def main() -> int:
     # 五个平台都支持：浏览器平台开会话，B 站直连。
     parser.add_argument("platform", help="bili / dy / ks / wb / xhs")
     parser.add_argument("--limit", type=int, default=3)
+    parser.add_argument(
+        "--download-attempts",
+        type=int,
+        default=2,
+        help="单条视频下载失败后的独立重试次数",
+    )
     parser.add_argument("--creator", default="", help="创作者 ID，走场景二")
     parser.add_argument("--keyword", default="", help="搜索关键词，走场景三（plus）")
     parser.add_argument("--today", action="store_true")

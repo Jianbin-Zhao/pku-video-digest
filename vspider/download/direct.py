@@ -30,6 +30,13 @@ _SUPPORTED = frozenset(_REFERERS)
 _CHUNK = 1 << 18
 
 
+def _usable_file(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def _extractor_for(platform: Platform) -> Callable[[dict[str, Any]], str]:
     """按平台取直链提取函数。
 
@@ -82,6 +89,42 @@ class DirectUrlDownloader(Downloader):
         dest_dir.mkdir(parents=True, exist_ok=True)
         started = time.perf_counter()
 
+        stem = f"{item.platform.value}_{item.video_id}"
+        video_path = dest_dir / f"{stem}.mp4"
+        audio_path = dest_dir / f"{stem}.wav"
+        cached_video = _usable_file(video_path)
+        if mode is DownloadMode.VIDEO and cached_video:
+            return DownloadResult(
+                item=item,
+                path=video_path,
+                mode=mode,
+                size_bytes=video_path.stat().st_size,
+                elapsed_sec=time.perf_counter() - started,
+                backend=self.name,
+                has_video_track=True,
+            )
+        if mode is DownloadMode.AUDIO_ONLY and _usable_file(audio_path):
+            return DownloadResult(
+                item=item,
+                path=audio_path,
+                mode=mode,
+                size_bytes=audio_path.stat().st_size,
+                elapsed_sec=time.perf_counter() - started,
+                backend=self.name,
+                has_video_track=False,
+            )
+        if mode is DownloadMode.AUDIO_ONLY and cached_video:
+            await self._to_wav(video_path, audio_path)
+            return DownloadResult(
+                item=item,
+                path=audio_path,
+                mode=mode,
+                size_bytes=audio_path.stat().st_size,
+                elapsed_sec=time.perf_counter() - started,
+                backend=self.name,
+                has_video_track=False,
+            )
+
         url = _extractor_for(item.platform)(item.raw)
         if not url:
             url = await self._hydrate(item)
@@ -91,17 +134,17 @@ class DirectUrlDownloader(Downloader):
                 f"常见原因是这条其实不是视频（微博纯文字、小红书图文笔记）"
             )
 
-        stem = f"{item.platform.value}_{item.video_id}"
-        video_path = dest_dir / f"{stem}.mp4"
         headers = await self._headers(item.platform)
 
-        await self._fetch(url, video_path, headers, item.uid)
+        if not cached_video:
+            await self._fetch(url, video_path, headers, item.uid)
 
         if mode is DownloadMode.AUDIO_ONLY:
-            audio_path = dest_dir / f"{stem}.wav"
-            await self._to_wav(video_path, audio_path)
+            if not _usable_file(audio_path):
+                await self._to_wav(video_path, audio_path)
             # 转完就删掉视频：AUDIO_ONLY 模式下留着只占空间。
-            video_path.unlink(missing_ok=True)
+            if not cached_video:
+                video_path.unlink(missing_ok=True)
             final, has_video = audio_path, False
         else:
             final, has_video = video_path, True

@@ -141,7 +141,7 @@ def rank(
     today_only: bool = typer.Option(
         False, "--today-only", help="只保留今天发布的视频（默认取榜单当前快照）"
     ),
-    profile: str = typer.Option("api", "--profile", help="归纳后端：api / gpu / cpu"),
+    profile: str = typer.Option("gpu", "--profile", help="归纳后端：api / gpu / cpu"),
     model: str = typer.Option("", "--model", help="覆盖默认归纳模型"),
     device: str = typer.Option("cuda:0", "--device", help="语音识别设备"),
     audio_only: bool = typer.Option(False, "--audio-only", help="只下音频，跳过画面 OCR"),
@@ -212,7 +212,7 @@ def creator(
     limit: int = typer.Option(20, "--limit", "-n", help="最多取几条"),
     today: bool = typer.Option(False, "--today", help="只要今天发布的"),
     since: str = typer.Option("", "--since", help="起始日期 YYYY-MM-DD，优先于 --today"),
-    profile: str = typer.Option("api", "--profile", help="归纳后端：api / gpu / cpu"),
+    profile: str = typer.Option("gpu", "--profile", help="归纳后端：api / gpu / cpu"),
     model: str = typer.Option("", "--model", help="覆盖默认归纳模型"),
     device: str = typer.Option("cuda:0", "--device", help="语音识别设备"),
     audio_only: bool = typer.Option(False, "--audio-only", help="只下音频，跳过画面 OCR"),
@@ -294,7 +294,7 @@ def search(
         "bili", "--platforms", "-p", help="逗号分隔，可跨平台，如 bili,xhs,wb"
     ),
     limit: int = typer.Option(3, "--limit", "-n", help="每个平台取几条"),
-    profile: str = typer.Option("api", "--profile", help="归纳后端：api / gpu / cpu"),
+    profile: str = typer.Option("gpu", "--profile", help="归纳后端：api / gpu / cpu"),
     model: str = typer.Option("", "--model", help="覆盖默认归纳模型"),
     device: str = typer.Option("cuda:0", "--device", help="语音识别设备"),
     fast: bool = typer.Option(

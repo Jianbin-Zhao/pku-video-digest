@@ -61,7 +61,7 @@ class _NoDiscovery:
 class RunRequest(BaseModel):
     mode: str = "rank"  # rank | creator | search | understand
     platform: str = "bili"
-    profile: str = "api"  # api | gpu | cpu
+    profile: str = "gpu"  # api | gpu | cpu
     model: str = ""
     device: str = "cuda:0"
     limit: int = 5
@@ -266,7 +266,13 @@ class RunManager:
             if local_file and path.exists():
                 prefetched.append((VideoItem.model_validate(record), path))
         if not prefetched:
-            raise FileNotFoundError("目录里没有可理解的视频文件")
+            if records:
+                raise FileNotFoundError("清单里有记录，但本地视频文件缺失")
+            return RunResult(
+                results=[],
+                elapsed_sec=0.0,
+                scenario=f"understand:{handoff.name}",
+            )
         return await orchestrator.run_prefetched(
             prefetched, scenario=f"understand:{handoff.name}"
         )

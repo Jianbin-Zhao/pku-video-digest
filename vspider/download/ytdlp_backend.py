@@ -76,6 +76,19 @@ class YtDlpDownloader(Downloader):
 
         # 输出名固定用 uid，避免标题里的表情和特殊字符在不同文件系统上出问题。
         stem = f"{item.platform.value}_{item.video_id}"
+        cached = _resolve_output(dest_dir, stem, b"", mode)
+        if cached is not None and cached.stat().st_size > 0:
+            return DownloadResult(
+                item=item,
+                path=cached,
+                mode=mode,
+                size_bytes=cached.stat().st_size,
+                elapsed_sec=time.perf_counter() - started,
+                backend=self.name,
+                has_video_track=mode is DownloadMode.VIDEO,
+            )
+
+        attempts = max(1, self._retries)
         args = [
             *self._argv,
             item.url,
@@ -91,7 +104,7 @@ class YtDlpDownloader(Downloader):
             "--socket-timeout",
             str(self._socket_timeout),
             "--retries",
-            str(self._retries),
+            str(attempts),
             "--print-json",
         ]
         if mode is DownloadMode.VIDEO:
@@ -113,22 +126,34 @@ class YtDlpDownloader(Downloader):
         if item.platform is Platform.BILIBILI:
             args += ["--referer", "https://www.bilibili.com/"]
 
-        process = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            raise DownloadError(
-                f"yt-dlp 下载 {item.uid} 失败 (exit={process.returncode}): "
-                f"{stderr.decode('utf-8', 'replace')[-600:]}"
+        path: Path | None = None
+        last_error = ""
+        for attempt in range(1, attempts + 1):
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            stdout, stderr = await process.communicate()
 
-        path = _resolve_output(dest_dir, stem, stdout, mode)
+            if process.returncode == 0:
+                path = _resolve_output(dest_dir, stem, stdout, mode)
+                if path is not None:
+                    break
+                last_error = f"yt-dlp 成功退出，但找不到 {stem} 的输出文件"
+            else:
+                last_error = (
+                    f"yt-dlp 下载 {item.uid} 失败 (exit={process.returncode}): "
+                    f"{stderr.decode('utf-8', 'replace')[-600:]}"
+                )
+
+            for partial in dest_dir.glob(f"{stem}*.part"):
+                partial.unlink(missing_ok=True)
+            if attempt < attempts:
+                await asyncio.sleep(1.5 * attempt)
+
         if path is None:
-            raise DownloadError(f"yt-dlp 声称成功但找不到 {stem} 的输出文件")
+            raise DownloadError(last_error)
 
         return DownloadResult(
             item=item,

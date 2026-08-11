@@ -115,9 +115,11 @@ def print_report(run: RunResult, console: Console | None = None) -> None:
 
     _print_timing(console, run)
 
+    total = len(run.results)
+    rate = f"{run.success_rate:.0%}" if total else "N/A"
     console.print(
-        f"\n[bold]成功 {len(run.succeeded)}/{len(run.results)}"
-        f"（{run.success_rate:.0%}），总耗时 {run.elapsed_sec:.1f}s[/bold]"
+        f"\n[bold]成功 {len(run.succeeded)}/{total}"
+        f"（{rate}），总耗时 {run.elapsed_sec:.1f}s[/bold]"
     )
     if run.failed:
         console.print("[red]失败明细：[/red]")
