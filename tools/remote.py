@@ -17,6 +17,7 @@ import hashlib
 import os
 import stat
 import sys
+import time
 from pathlib import Path, PurePosixPath
 
 import paramiko
@@ -70,10 +71,23 @@ def run(command: str, timeout: float | None = None) -> int:
         # get_pty 让远端把 stdout/stderr 合流并保留进度条等即时输出，
         # 长时间的 pip / 模型下载才能看到过程而不是最后一次性吐出来。
         _, stdout, _ = client.exec_command(command, get_pty=True, timeout=timeout)
-        for line in iter(stdout.readline, ""):
-            sys.stdout.write(line)
+        channel = stdout.channel
+        while True:
+            if channel.recv_ready():
+                raw = channel.recv(4096)
+                if not raw:
+                    break
+                sys.stdout.write(raw.decode("utf-8", errors="replace"))
+                sys.stdout.flush()
+                continue
+            if channel.exit_status_ready():
+                break
+            time.sleep(0.05)
+        # Drain bytes that arrived between the last readiness check and exit.
+        while channel.recv_ready():
+            sys.stdout.write(channel.recv(4096).decode("utf-8", errors="replace"))
             sys.stdout.flush()
-        return stdout.channel.recv_exit_status()
+        return channel.recv_exit_status()
     finally:
         client.close()
 
