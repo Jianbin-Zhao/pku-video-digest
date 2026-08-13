@@ -35,7 +35,7 @@ from vspider.registry import (
     build_summarizer,
     resolve_platform,
 )
-from vspider.settings import configure_stdio, load_env
+from vspider.settings import configure_stdio, load_env, local_now_naive, local_today
 
 configure_stdio()
 
@@ -249,7 +249,7 @@ def creator(
         except ValueError as exc:
             raise typer.BadParameter(f"--since 需要 YYYY-MM-DD 格式：{exc}") from exc
     elif today:
-        day = date.today()
+        day = local_today()
 
     reporter = ConsoleReporter(console=console, verbose=verbose)
     storage, skip_uids = _resume_state(resume)
@@ -483,7 +483,7 @@ def _persist(
         "mode": mode,
         "platform": platform,
         "profile": profile,
-        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "started_at": local_now_naive().isoformat(timespec="seconds"),
     }
     try:
         storage.save_run(result, meta)  # type: ignore[attr-defined]
@@ -505,7 +505,7 @@ def _dump(run: RunResult, out: Path | None) -> None:
         return
     payload = {
         "scenario": run.scenario,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": local_now_naive().isoformat(timespec="seconds"),
         "elapsed_sec": round(run.elapsed_sec, 2),
         "success_rate": round(run.success_rate, 3),
         "digest": run.digest.model_dump(mode="json") if run.digest else None,

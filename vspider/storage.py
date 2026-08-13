@@ -67,6 +67,16 @@ class Storage:
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
+            # Web SSE and CLI can touch the same database. WAL plus a short
+            # busy timeout avoids transient "database is locked" failures.
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            try:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.execute("PRAGMA synchronous=NORMAL")
+            except sqlite3.OperationalError:
+                # Some mounted filesystems do not support WAL; the baseline
+                # rollback journal remains fully compatible there.
+                pass
             self._conn.executescript(_SCHEMA)
             # 兼容 baseline 建的旧库：runs 表还没有 digest 列时就地补上。
             # SQLite 的 ALTER ADD COLUMN 对已存在的列会报错，捕掉即可。

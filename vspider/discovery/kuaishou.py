@@ -10,6 +10,7 @@ from vspider.discovery.base import RankingProvider, take_top
 from vspider.discovery.keyword_rerank import KeywordRejected, collect_by_keywords
 from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
+from vspider.settings import local_datetime_fromtimestamp, local_today
 
 _SEED_KEYWORDS = (
     "热门",
@@ -60,7 +61,7 @@ class KuaishouRankingProvider(RankingProvider):
         )
 
         if today_only:
-            today = date.today()
+            today = local_today()
             items = [
                 i
                 for i in items
@@ -139,7 +140,7 @@ def _parse_feed(feed: dict[str, Any]) -> VideoItem | None:
     # timestamp 是毫秒。
     timestamp = photo.get("timestamp")
     publish_time = (
-        datetime.fromtimestamp(timestamp / 1000)
+        local_datetime_fromtimestamp(timestamp / 1000)
         if isinstance(timestamp, (int, float)) and timestamp > 0
         else None
     )

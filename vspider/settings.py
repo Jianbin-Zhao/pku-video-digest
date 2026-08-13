@@ -8,9 +8,38 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_TIMEZONE = "Asia/Shanghai"
+
+
+def local_timezone() -> ZoneInfo | timezone:
+    """Return the configured business timezone, falling back safely."""
+    name = os.environ.get("VSPIDER_TIMEZONE", DEFAULT_TIMEZONE).strip()
+    try:
+        return ZoneInfo(name or DEFAULT_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        # Windows Python may not ship an IANA tz database. Asia/Shanghai has
+        # no DST, so a fixed UTC+8 fallback preserves the workflow semantics.
+        return timezone(timedelta(hours=8), name=DEFAULT_TIMEZONE)
+
+
+def local_today() -> date:
+    """Return today's date in the timezone used by platform workflows."""
+    return datetime.now(local_timezone()).date()
+
+
+def local_now_naive() -> datetime:
+    """Return local wall-clock time without changing existing JSON shape."""
+    return datetime.now(local_timezone()).replace(tzinfo=None)
+
+
+def local_datetime_fromtimestamp(timestamp: float) -> datetime:
+    """Convert a Unix timestamp to a naive local datetime for compatibility."""
+    return datetime.fromtimestamp(timestamp, local_timezone()).replace(tzinfo=None)
 
 
 def configure_stdio() -> None:

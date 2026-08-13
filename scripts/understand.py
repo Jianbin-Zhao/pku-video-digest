@@ -28,7 +28,11 @@ from vspider.pipeline.orchestrator import (  # noqa: E402
     RunResult,
 )
 from vspider.registry import Paths, build_asr, build_ocr, build_summarizer  # noqa: E402
-from vspider.settings import configure_stdio, load_env  # noqa: E402
+from vspider.settings import (  # noqa: E402
+    configure_stdio,
+    load_env,
+    local_now_naive,
+)
 
 
 class _NoDiscovery:
@@ -146,8 +150,6 @@ async def main() -> int:
     # plus：入库 + 报告导出，验证「历史留存 → 可分享报告」这条交付链路。
     if args.persist or args.report:
         import uuid
-        from datetime import datetime
-
         from vspider.storage import Storage
 
         storage = Storage()
@@ -156,7 +158,7 @@ async def main() -> int:
             "mode": "understand",
             "platform": handoff.name,
             "profile": args.profile,
-            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "started_at": local_now_naive().isoformat(timespec="seconds"),
         }
         storage.save_run(result, meta)
         print(f"\n已入库 run_id={meta['run_id']}")

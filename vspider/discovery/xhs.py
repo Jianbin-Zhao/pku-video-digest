@@ -27,6 +27,7 @@ from vspider.discovery.keyword_rerank import (
 )
 from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
+from vspider.settings import local_datetime_fromtimestamp, local_today
 
 # 小红书没有公开热搜接口，使用固定种子词。
 _SEED_KEYWORDS = (
@@ -74,7 +75,7 @@ class XhsRankingProvider(RankingProvider):
         )
 
         if today_only:
-            today = date.today()
+            today = local_today()
             items = [
                 i
                 for i in items
@@ -185,13 +186,13 @@ def _parse_note(node: dict[str, Any]) -> VideoItem | None:
     published = note.get("time") or note.get("create_time")
     publish_time = None
     if isinstance(published, (int, float)) and published > 0:
-        publish_time = datetime.fromtimestamp(published / 1000)
+        publish_time = local_datetime_fromtimestamp(published / 1000)
     elif len(note_id) >= 8:
         # 创作者列表缺 time 时从 note_id 解析 Unix 秒。
         try:
             note_timestamp = int(note_id[:8], 16)
             if 1_500_000_000 <= note_timestamp <= 4_102_444_800:
-                publish_time = datetime.fromtimestamp(note_timestamp)
+                publish_time = local_datetime_fromtimestamp(note_timestamp)
         except ValueError:
             pass
 

@@ -10,8 +10,9 @@ HTML 刻意做成零依赖单文件：内联样式、不引外部字体和脚本
 from __future__ import annotations
 
 import html
-from datetime import datetime
 from typing import Any
+
+from vspider.settings import local_now_naive
 
 _SENTIMENT_LABELS = {
     "positive": "积极",
@@ -71,7 +72,7 @@ def render_markdown(run: dict[str, Any]) -> str:
     lines.append(f"# {_run_title(run)} 内容归纳报告")
     lines.append("")
     lines.append(
-        f"> 生成时间 {run.get('started_at') or datetime.now().isoformat(timespec='seconds')}"
+        f"> 生成时间 {run.get('started_at') or local_now_naive().isoformat(timespec='seconds')}"
         f" · 归纳后端 `{run.get('profile', '')}`"
         f" · 成功 {len(ok)}/{len(videos)}"
         f" · 总耗时 {run.get('elapsed_sec', 0)}s"

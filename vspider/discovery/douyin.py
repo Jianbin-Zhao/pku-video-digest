@@ -15,6 +15,7 @@ from vspider.discovery.keyword_rerank import (
 )
 from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
+from vspider.settings import local_datetime_fromtimestamp, local_today
 
 _HOT_LIST_URI = "/aweme/v1/web/hot/search/list/"
 _SEARCH_KEYWORDS_LIMIT = 6
@@ -46,7 +47,7 @@ class DouyinRankingProvider(RankingProvider):
                 source = RankSource.HOT_KEYWORD_RERANK
 
         if today_only:
-            today = date.today()
+            today = local_today()
             items = [
                 i
                 for i in items
@@ -234,7 +235,7 @@ def _parse_aweme(aweme: dict[str, Any]) -> VideoItem | None:
         desc=(aweme.get("desc") or "").strip(),
         author_id=str(author.get("sec_uid") or author.get("uid") or ""),
         author_name=author.get("nickname") or "",
-        publish_time=datetime.fromtimestamp(created) if created else None,
+        publish_time=local_datetime_fromtimestamp(created) if created else None,
         # video.duration 是毫秒。
         duration_sec=int((video.get("duration") or 0) / 1000),
         cover_url=_first_url(video.get("cover") or video.get("origin_cover")),

@@ -7,7 +7,6 @@ import asyncio
 import contextlib
 import json
 import sys
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -25,7 +24,7 @@ from vspider.registry import (  # noqa: E402
     build_provider,
     resolve_platform,
 )
-from vspider.settings import configure_stdio, load_env  # noqa: E402
+from vspider.settings import configure_stdio, load_env, local_today  # noqa: E402
 
 
 async def _discover(provider: object, args: argparse.Namespace) -> list[VideoItem]:
@@ -36,7 +35,7 @@ async def _discover(provider: object, args: argparse.Namespace) -> list[VideoIte
         return await provider.fetch_creator_videos(
             args.creator,
             limit=args.limit,
-            since=date.today() if args.today else None,
+            since=local_today() if args.today else None,
         )
     return await provider.fetch_ranking(limit=args.limit, today_only=args.today)
 

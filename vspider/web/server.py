@@ -7,7 +7,6 @@ import json
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +19,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from vspider.models import Platform, VideoItem
 from vspider.pipeline.events import Event, EventKind
@@ -40,7 +39,7 @@ from vspider.registry import (
     build_summarizer,
     resolve_platform,
 )
-from vspider.settings import load_env
+from vspider.settings import load_env, local_now_naive, local_today
 from vspider.storage import Storage
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -64,13 +63,13 @@ class RunRequest(BaseModel):
     profile: str = "gpu"  # api | gpu | cpu
     model: str = ""
     device: str = "cuda:0"
-    limit: int = 5
+    limit: int = Field(default=5, ge=1)
     category: str = "all"
     today: bool = False
     creator_id: str = ""
     keyword: str = ""  # search 模式的关键词
     handoff_dir: str = ""
-    concurrency: int = 3
+    concurrency: int = Field(default=3, ge=1)
     resume: bool = False  # 断点续跑:跳过 SQLite 里已成功归纳过的视频
     fast: bool = False  # 快速模式:转写充分时跳过抽帧与 OCR
     digest: bool = True  # 整批完成后生成跨视频总览
@@ -130,6 +129,9 @@ class RunManager:
         self._runs: dict[str, RunState] = {}
         self._cache = ComponentCache()
         self._storage = storage
+        # ASR and the local LLM are shared across runs; serialize whole runs so
+        # two Web requests cannot oversubscribe the same GPU unexpectedly.
+        self._run_slot = asyncio.Semaphore(1)
 
     def get(self, run_id: str) -> RunState | None:
         return self._runs.get(run_id)
@@ -141,7 +143,7 @@ class RunManager:
             "mode": req.mode,
             "platform": req.platform,
             "profile": req.profile,
-            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "started_at": local_now_naive().isoformat(timespec="seconds"),
         }
         state = RunState(run_id=run_id, meta=meta)
         self._runs[run_id] = state
@@ -152,6 +154,22 @@ class RunManager:
         state.push(event.to_dict())
 
     async def _run(self, state: RunState, req: RunRequest) -> None:
+        queued = self._run_slot.locked()
+        if queued:
+            state.push(
+                Event(
+                    EventKind.LOG,
+                    message="任务已入队，等待共享 GPU 资源",
+                ).to_dict()
+            )
+        async with self._run_slot:
+            if queued:
+                state.push(
+                    Event(EventKind.LOG, message="任务开始执行").to_dict()
+                )
+            await self._run_locked(state, req)
+
+    async def _run_locked(self, state: RunState, req: RunRequest) -> None:
         try:
             platform = resolve_platform(req.platform)
             orchestrator, closer = await self._build(platform, req, state)
@@ -159,7 +177,7 @@ class RunManager:
                 if req.mode == "understand":
                     run = await self._run_understand(orchestrator, req)
                 elif req.mode == "creator":
-                    day = date.today() if req.today else None
+                    day = local_today() if req.today else None
                     run = await orchestrator.run_creator(
                         creator_id=req.creator_id, limit=req.limit, since=day
                     )

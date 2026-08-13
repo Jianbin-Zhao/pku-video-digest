@@ -11,6 +11,7 @@ from typing import Any
 from vspider.discovery.base import RankingProvider, take_top
 from vspider.mediacrawler.session import MediaCrawlerSession
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
+from vspider.settings import local_datetime_fromtimestamp, local_today
 
 _INDEX_URI = "/api/container/getIndex"
 _VIDEO_CONTAINERS = (
@@ -62,7 +63,7 @@ class WeiboRankingProvider(RankingProvider):
                 source = RankSource.HOT_KEYWORD_RERANK
 
         if today_only:
-            today = date.today()
+            today = local_today()
             items = [
                 i
                 for i in items
@@ -317,7 +318,7 @@ def _parse_created_at(value: Any) -> datetime | None:
 
         timestamp = utils.rfc2822_to_timestamp(value)
         if timestamp:
-            return datetime.fromtimestamp(timestamp)
+            return local_datetime_fromtimestamp(timestamp)
     except Exception:  # noqa: BLE001
         pass
     return None

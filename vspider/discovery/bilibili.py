@@ -23,6 +23,7 @@ import httpx
 from vspider.discovery.base import RankingProvider, take_top
 from vspider.discovery.wbi import WbiSigner, bootstrap_cookies, ensure_bili_ticket
 from vspider.models import Platform, RankSource, VideoItem, VideoStats
+from vspider.settings import local_datetime_fromtimestamp, local_today
 
 API_BASE = "https://api.bilibili.com"
 
@@ -182,7 +183,7 @@ class BilibiliRankingProvider(RankingProvider):
         if not today_only:
             return take_top(items, limit, RankSource.OFFICIAL_RANKING, category)
 
-        today = date.today()
+        today = local_today()
         picked = [item for item in items if _is_today(item, today)]
         if len(picked) < limit:
             picked.extend(await self._popular_today(limit - len(picked), today, picked))
@@ -319,7 +320,7 @@ def _parse_search_video(entry: dict[str, Any]) -> VideoItem:
         desc=entry.get("description") or "",
         author_id=str(entry.get("mid") or ""),
         author_name=entry.get("author") or "",
-        publish_time=datetime.fromtimestamp(pubdate) if pubdate else None,
+        publish_time=local_datetime_fromtimestamp(pubdate) if pubdate else None,
         duration_sec=_parse_length(entry.get("duration")),
         cover_url=_normalize_cover(entry.get("pic") or ""),
         tags=[t for t in (entry.get("tag") or "").split(",") if t][:5],
@@ -351,7 +352,7 @@ def _parse_creator_video(entry: dict[str, Any]) -> VideoItem:
         desc=entry.get("description") or "",
         author_id=str(entry.get("mid") or ""),
         author_name=entry.get("author") or "",
-        publish_time=datetime.fromtimestamp(created) if created else None,
+        publish_time=local_datetime_fromtimestamp(created) if created else None,
         duration_sec=_parse_length(entry.get("length")),
         cover_url=_normalize_cover(entry.get("pic") or ""),
         stats=VideoStats(
@@ -409,7 +410,7 @@ def _parse_video(entry: dict[str, Any]) -> VideoItem:
         desc=entry.get("desc") or "",
         author_id=str(owner.get("mid") or ""),
         author_name=owner.get("name") or "",
-        publish_time=datetime.fromtimestamp(pubdate) if pubdate else None,
+        publish_time=local_datetime_fromtimestamp(pubdate) if pubdate else None,
         duration_sec=int(entry.get("duration") or 0),
         cover_url=entry.get("pic") or "",
         tags=tags,

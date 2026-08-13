@@ -40,8 +40,8 @@
 需要 Python 3.11+、Git 和 ffmpeg。
 
 ```bash
-git clone https://github.com/Jianbin-Zhao/pku-video-digest.git
-cd pku-video-digest
+git clone https://github.com/Jianbin-Zhao/test-video-digest.git
+cd test-video-digest
 python scripts/setup_local.py
 ```
 
@@ -94,7 +94,7 @@ Cookie 会写入本机 `.env`，不会打印到终端。
 服务器代码固定放在 `/root/vspider`，与启动脚本保持一致：
 
 ```bash
-git clone https://github.com/Jianbin-Zhao/pku-video-digest.git /root/vspider
+git clone https://github.com/Jianbin-Zhao/test-video-digest.git /root/vspider
 cd /root/vspider
 pip install -e ".[download,asr,ocr,serve]"
 ```
@@ -149,16 +149,32 @@ vspider rank --platform bili --limit 5 --max-duration 0 \
 python scripts/fetch_local.py xhs --limit 5 \
   --out-dir data/handoff/rank_xhs
 
-python tools/remote.py put data/handoff/rank_xhs \
+python tools/remote.py sync data/handoff/rank_xhs \
   /root/autodl-tmp/data/handoff/rank_xhs
 
-python scripts/understand.py \
+python tools/remote.py run "cd /root/vspider && \
+  /root/miniconda3/bin/python scripts/understand.py \
   /root/autodl-tmp/data/handoff/rank_xhs \
-  --profile gpu --device cuda:0 \
-  --digest --persist --report report.html
+  --profile gpu --device cuda:0 --digest --persist \
+  --report /root/autodl-tmp/data/handoff/rank_xhs/report.html"
+
+python tools/remote.py get \
+  /root/autodl-tmp/data/handoff/rank_xhs/report.html \
+  data/handoff/rank_xhs/report.html
 ```
 
 把 `xhs` 换成 `dy`、`ks` 或 `wb` 即可。
+
+推荐直接在本机运行一键混合流程：浏览器登录、采集和下载留在本机，ASR、OCR、
+归纳和报告生成在 GPU 服务器执行。同步过程只上传发生变化的文件，不会上传 `.env`：
+
+```bash
+python scripts/run_hybrid.py xhs --limit 5 --today \
+  --out-dir data/handoff/hybrid_xhs
+```
+
+服务器目录或 Python 路径与默认值不同时，可设置 `VSPIDER_REMOTE_PROJECT`、
+`VSPIDER_REMOTE_PYTHON`；本机与服务器统一通过 `VSPIDER_TIMEZONE` 判断“今天”。
 
 ## 5. 创作者今日视频
 
