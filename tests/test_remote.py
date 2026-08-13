@@ -3,10 +3,12 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from tools.remote import _sync_file
+from tools.remote import _sync_file, run
 
 
 class _Handle:
@@ -55,6 +57,35 @@ class _FakeSftp:
         self.files[destination] = self.files.pop(source)
 
 
+class _FakeChannel:
+    def __init__(self, chunks: list[bytes], status: int) -> None:
+        self._chunks = chunks
+        self._status = status
+
+    def recv_ready(self) -> bool:
+        return bool(self._chunks)
+
+    def recv(self, _size: int) -> bytes:
+        return self._chunks.pop(0)
+
+    def exit_status_ready(self) -> bool:
+        return not self._chunks
+
+    def recv_exit_status(self) -> int:
+        return self._status
+
+
+class _FakeClient:
+    def __init__(self, channel: _FakeChannel) -> None:
+        self._channel = channel
+
+    def exec_command(self, *_args: object, **_kwargs: object) -> tuple[None, object, None]:
+        return None, SimpleNamespace(channel=self._channel), None
+
+    def close(self) -> None:
+        pass
+
+
 class RemoteSyncTests(unittest.TestCase):
     def test_sync_file_is_incremental_and_atomic(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
@@ -69,6 +100,16 @@ class RemoteSyncTests(unittest.TestCase):
             self.assertTrue(_sync_file(sftp, str(local), remote))
             self.assertEqual(sftp.files[str(remote)], b"second")
             self.assertFalse(any(".part." in path for path in sftp.files))
+
+    def test_run_replaces_invalid_utf8_and_preserves_exit_status(self) -> None:
+        client = _FakeClient(_FakeChannel([b"ok " + bytes([0xFF]) + b"\n", b"done\n"], status=7))
+        output = io.StringIO()
+        with patch("tools.remote._connect", return_value=client):
+            with redirect_stdout(output):
+                code = run("synthetic")
+
+        self.assertEqual(code, 7)
+        self.assertEqual(output.getvalue(), "ok \ufffd\ndone\n")
 
 
 if __name__ == "__main__":
